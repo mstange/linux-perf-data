@@ -23,7 +23,7 @@ pub struct PerfHeader {
 }
 
 impl PerfHeader {
-    pub fn parse<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+    pub fn parse<R: Read>(mut reader: R) -> Result<Self, std::io::Error> {
         let mut magic = [0; 8];
         reader.read_exact(&mut magic)?;
 
@@ -35,14 +35,14 @@ impl PerfHeader {
     }
 
     fn parse_impl<R: Read, T: ByteOrder>(
-        reader: &mut R,
+        mut reader: R,
         magic: [u8; 8],
     ) -> Result<Self, std::io::Error> {
         let header_size = reader.read_u64::<T>()?;
         let attr_size = reader.read_u64::<T>()?;
-        let attr_section = PerfFileSection::parse::<R, T>(reader)?;
-        let data_section = PerfFileSection::parse::<R, T>(reader)?;
-        let _event_types_section = PerfFileSection::parse::<R, T>(reader)?;
+        let attr_section = PerfFileSection::parse::<_, T>(&mut reader)?;
+        let data_section = PerfFileSection::parse::<_, T>(&mut reader)?;
+        let _event_types_section = PerfFileSection::parse::<_, T>(&mut reader)?;
         let flags = [
             reader.read_u64::<T>()?,
             reader.read_u64::<T>()?,
@@ -73,7 +73,7 @@ pub struct PerfFileSection {
 }
 
 impl PerfFileSection {
-    pub fn parse<R: Read, T: ByteOrder>(reader: &mut R) -> Result<Self, std::io::Error> {
+    pub fn parse<R: Read, T: ByteOrder>(mut reader: R) -> Result<Self, std::io::Error> {
         let offset = reader.read_u64::<T>()?;
         let size = reader.read_u64::<T>()?;
         Ok(Self { offset, size })

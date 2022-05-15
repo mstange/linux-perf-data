@@ -30,8 +30,8 @@ pub struct BuildIdEvent {
 }
 
 impl BuildIdEvent {
-    pub fn parse<R: Read, T: ByteOrder>(reader: &mut R) -> Result<Self, std::io::Error> {
-        let header = PerfEventHeader::parse::<R, T>(reader)?;
+    pub fn parse<R: Read, T: ByteOrder>(mut reader: R) -> Result<Self, std::io::Error> {
+        let header = PerfEventHeader::parse::<_, T>(&mut reader)?;
         let pid = reader.read_i32::<T>()?;
         let mut build_id_bytes = [0; 24];
         reader.read_exact(&mut build_id_bytes)?;

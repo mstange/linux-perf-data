@@ -35,8 +35,8 @@ pub struct DsoBuildId {
     pub build_id: Vec<u8>,
 }
 
-pub struct PerfFileReader<'a, R: Read> {
-    reader: &'a mut R,
+pub struct PerfFileReader<R: Read> {
+    reader: R,
     endian: Endianness,
     feature_sections: Vec<(FlagFeature, Vec<u8>)>,
     read_offset: u64,
@@ -48,9 +48,9 @@ pub struct PerfFileReader<'a, R: Read> {
     buffers_for_recycling: VecDeque<Vec<u8>>,
 }
 
-impl<'a, C: Read + Seek> PerfFileReader<'a, C> {
-    pub fn parse_file(cursor: &'a mut C) -> Result<Self, Error> {
-        let header = PerfHeader::parse(cursor)?;
+impl<C: Read + Seek> PerfFileReader<C> {
+    pub fn parse_file(mut cursor: C) -> Result<Self, Error> {
+        let header = PerfHeader::parse(&mut cursor)?;
         match &header.magic {
             b"PERFILE2" => {
                 Self::parse_file_impl::<LittleEndian>(cursor, header, Endianness::LittleEndian)
@@ -63,7 +63,7 @@ impl<'a, C: Read + Seek> PerfFileReader<'a, C> {
     }
 
     fn parse_file_impl<T>(
-        cursor: &'a mut C,
+        mut cursor: C,
         header: PerfHeader,
         endian: Endianness,
     ) -> Result<Self, Error>
@@ -79,7 +79,7 @@ impl<'a, C: Read + Seek> PerfFileReader<'a, C> {
             for bit_index in 0..8 {
                 let flag_is_set = (flags_chunk & (1 << bit_index)) != 0;
                 if flag_is_set {
-                    let section = PerfFileSection::parse::<C, T>(cursor)?;
+                    let section = PerfFileSection::parse::<_, T>(&mut cursor)?;
                     if let Some(feature) = FlagFeature::from_int(flag) {
                         feature_sections_info.push((feature, section));
                     } else {
@@ -107,7 +107,7 @@ impl<'a, C: Read + Seek> PerfFileReader<'a, C> {
         let attr_size = header.attr_size;
         let mut offset = 0;
         while offset + attr_size <= attrs_size {
-            let attr = PerfEventAttr::parse::<C, T>(cursor, Some(attr_size as u32))
+            let attr = PerfEventAttr::parse::<_, T>(&mut cursor, Some(attr_size as u32))
                 .map_err(|_| ReadError::PerfEventAttr)?;
             perf_event_attrs.push(attr);
             offset += attr_size;
@@ -137,7 +137,7 @@ impl<'a, C: Read + Seek> PerfFileReader<'a, C> {
     }
 }
 
-impl<'a, R: Read> PerfFileReader<'a, R> {
+impl<R: Read> PerfFileReader<R> {
     pub fn endian(&self) -> Endianness {
         self.endian
     }
@@ -366,16 +366,16 @@ impl<'a, R: Read> PerfFileReader<'a, R> {
         } = pending_record;
         let prev_buffer = std::mem::replace(&mut self.current_event_body, buffer);
         self.buffers_for_recycling.push_back(prev_buffer);
-        let raw_data = RawData::from(&self.current_event_body[..]);
+        let data = RawData::from(&self.current_event_body[..]);
         let raw_event = RawRecord {
             record_type,
             misc,
-            data: raw_data,
+            data,
         };
         Ok(if self.endian == Endianness::LittleEndian {
-            raw_event.parse::<byteorder::LittleEndian>(&self.parse_info)
+            raw_event.to_parsed::<byteorder::LittleEndian>(&self.parse_info)
         } else {
-            raw_event.parse::<byteorder::BigEndian>(&self.parse_info)
+            raw_event.to_parsed::<byteorder::BigEndian>(&self.parse_info)
         }?)
     }
 }
