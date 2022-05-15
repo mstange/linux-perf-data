@@ -42,6 +42,7 @@ pub struct PerfFileReader<R: Read> {
     read_offset: u64,
     record_data_len: u64,
     current_event_body: Vec<u8>,
+    attributes: PerfEventAttr,
     parse_info: RecordParseInfo,
     /// Sorted by time
     remaining_pending_records: VecDeque<PendingRecord>,
@@ -116,8 +117,8 @@ impl<C: Read + Seek> PerfFileReader<C> {
         // Grab the first of the perf event attrs.
         // TODO: What happens if there's more than one attr? How do we know which
         // records belong to which event?
-        let attr = &perf_event_attrs[0];
-        let parse_info = RecordParseInfo::from_attr(attr);
+        let attributes = perf_event_attrs.remove(0);
+        let parse_info = RecordParseInfo::from_attr(&attributes);
 
         // Move the cursor to the start of the data section so that we can start
         // reading records from it.
@@ -126,6 +127,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
         Ok(Self {
             reader: cursor,
             endian,
+            attributes,
             feature_sections,
             read_offset: 0,
             record_data_len: header.data_section.size,
@@ -140,6 +142,11 @@ impl<C: Read + Seek> PerfFileReader<C> {
 impl<R: Read> PerfFileReader<R> {
     pub fn endian(&self) -> Endianness {
         self.endian
+    }
+
+    /// The attributes which were requested for the perf event.
+    pub fn attributes(&self) -> &PerfEventAttr {
+        &self.attributes
     }
 
     pub fn has_feature(&self, feature: FlagFeature) -> bool {
