@@ -367,15 +367,15 @@ impl<R: Read> PerfFileReader<R> {
         let prev_buffer = std::mem::replace(&mut self.current_event_body, buffer);
         self.buffers_for_recycling.push_back(prev_buffer);
         let data = RawData::from(&self.current_event_body[..]);
-        let raw_event = RawRecord {
+        let raw_record = RawRecord {
             record_type,
             misc,
             data,
         };
         Ok(if self.endian == Endianness::LittleEndian {
-            raw_event.to_parsed::<byteorder::LittleEndian>(&self.parse_info)
+            raw_record.to_parsed::<byteorder::LittleEndian>(&self.parse_info)
         } else {
-            raw_event.to_parsed::<byteorder::BigEndian>(&self.parse_info)
+            raw_record.to_parsed::<byteorder::BigEndian>(&self.parse_info)
         }?)
     }
 }
