@@ -7,9 +7,8 @@ mod perf_file;
 
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
-pub use flag_feature::FlagFeature;
-use flag_feature::FlagFeatureSet;
-pub use flag_sections::NrCpus;
+pub use flag_feature::{FlagFeature, FlagFeatureSet};
+pub use flag_sections::{NrCpus, SampleTimeRange};
 
 /// This is a re-export of the linux-perf-event-reader crate. We use its types
 /// in our public API.
@@ -214,6 +213,19 @@ impl<R: Read> PerfFileReader<R> {
         Ok(build_ids)
     }
 
+    /// The timestamp of the first and the last sample in this file.
+    pub fn sample_time_range(&self) -> Result<Option<SampleTimeRange>, Error> {
+        let section_data = match self.feature_section(FlagFeature::SampleTime) {
+            Some(section) => section,
+            None => return Ok(None),
+        };
+        let time_range = match self.endian {
+            Endianness::LittleEndian => SampleTimeRange::parse::<_, LittleEndian>(section_data)?,
+            Endianness::BigEndian => SampleTimeRange::parse::<_, BigEndian>(section_data)?,
+        };
+        Ok(Some(time_range))
+    }
+
     /// Only call this for features whose section is just a perf_header_string.
     fn feature_string(&self, feature: FlagFeature) -> Result<Option<&str>, Error> {
         self.feature_section(feature)
@@ -246,10 +258,9 @@ impl<R: Read> PerfFileReader<R> {
     pub fn nr_cpus(&self) -> Result<Option<NrCpus>, Error> {
         self.feature_section(FlagFeature::NrCpus)
             .map(|section| {
-                let mut cursor = Cursor::new(section);
                 Ok(match self.endian {
-                    Endianness::LittleEndian => NrCpus::parse::<_, LittleEndian>(&mut cursor),
-                    Endianness::BigEndian => NrCpus::parse::<_, BigEndian>(&mut cursor),
+                    Endianness::LittleEndian => NrCpus::parse::<_, LittleEndian>(section),
+                    Endianness::BigEndian => NrCpus::parse::<_, BigEndian>(section),
                 }?)
             })
             .transpose()
@@ -258,13 +269,13 @@ impl<R: Read> PerfFileReader<R> {
     /// The description of the CPU. On x86 this is the model name
     /// from `/proc/cpuinfo`.
     pub fn cpu_desc(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(FlagFeature::Cmdline)
+        self.feature_string(FlagFeature::CpuDesc)
     }
 
     /// The exact CPU type. On x86 this is `vendor,family,model,stepping`.
     /// For example: `GenuineIntel,6,69,1`
     pub fn cpu_id(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(FlagFeature::Cmdline)
+        self.feature_string(FlagFeature::CpuId)
     }
 
     /// If true, the data section contains data recorded from `perf stat record`.

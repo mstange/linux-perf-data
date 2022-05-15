@@ -22,3 +22,23 @@ impl NrCpus {
         })
     }
 }
+
+/// The timestamps of the first and last sample.
+#[derive(Debug, Clone, Copy)]
+pub struct SampleTimeRange {
+    pub first_sample_time: u64,
+    pub last_sample_time: u64,
+}
+
+impl SampleTimeRange {
+    pub const STRUCT_SIZE: usize = 8 + 8;
+
+    pub fn parse<R: Read, T: ByteOrder>(mut reader: R) -> Result<Self, std::io::Error> {
+        let first_sample_time = reader.read_u64::<T>()?;
+        let last_sample_time = reader.read_u64::<T>()?;
+        Ok(Self {
+            first_sample_time,
+            last_sample_time,
+        })
+    }
+}
