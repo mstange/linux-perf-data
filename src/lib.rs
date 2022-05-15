@@ -8,6 +8,7 @@ mod perf_file;
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
 pub use flag_feature::FlagFeature;
+use flag_feature::FlagFeatureSet;
 pub use flag_sections::NrCpus;
 
 /// This is a re-export of the linux-perf-event-reader crate. We use its types
@@ -38,6 +39,7 @@ pub struct DsoBuildId {
 pub struct PerfFileReader<R: Read> {
     reader: R,
     endian: Endianness,
+    feature_flags: FlagFeatureSet,
     feature_sections: Vec<(FlagFeature, Vec<u8>)>,
     read_offset: u64,
     record_data_len: u64,
@@ -121,6 +123,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
             reader: cursor,
             endian,
             attributes,
+            feature_flags: header.flags,
             feature_sections,
             read_offset: 0,
             record_data_len: header.data_section.size,
@@ -142,8 +145,8 @@ impl<R: Read> PerfFileReader<R> {
         &self.attributes
     }
 
-    pub fn has_feature(&self, feature: FlagFeature) -> bool {
-        self.feature_sections.iter().any(|(f, _)| *f == feature)
+    pub fn feature_flags(&self) -> FlagFeatureSet {
+        self.feature_flags
     }
 
     pub fn feature_section(&self, feature: FlagFeature) -> Option<&[u8]> {
@@ -245,7 +248,7 @@ impl<R: Read> PerfFileReader<R> {
     }
 
     pub fn is_stats(&self) -> bool {
-        self.has_feature(FlagFeature::Stat)
+        self.feature_flags.has_flag(FlagFeature::Stat)
     }
 
     fn read_string<'s>(&self, s: &'s [u8]) -> Result<&'s str, Error> {

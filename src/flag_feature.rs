@@ -107,6 +107,44 @@ impl FlagFeature {
     }
 }
 
+impl From<FlagFeature> for u32 {
+    fn from(flag: FlagFeature) -> Self {
+        match flag {
+            FlagFeature::TracingData => HEADER_TRACING_DATA,
+            FlagFeature::BuildId => HEADER_BUILD_ID,
+            FlagFeature::Hostname => HEADER_HOSTNAME,
+            FlagFeature::OsRelease => HEADER_OSRELEASE,
+            FlagFeature::Version => HEADER_VERSION,
+            FlagFeature::Arch => HEADER_ARCH,
+            FlagFeature::NrCpus => HEADER_NRCPUS,
+            FlagFeature::CpuDesc => HEADER_CPUDESC,
+            FlagFeature::CpuId => HEADER_CPUID,
+            FlagFeature::TotalMem => HEADER_TOTAL_MEM,
+            FlagFeature::Cmdline => HEADER_CMDLINE,
+            FlagFeature::EventDesc => HEADER_EVENT_DESC,
+            FlagFeature::CpuTopology => HEADER_CPU_TOPOLOGY,
+            FlagFeature::NumaTopology => HEADER_NUMA_TOPOLOGY,
+            FlagFeature::BranchStack => HEADER_BRANCH_STACK,
+            FlagFeature::PmuMappings => HEADER_PMU_MAPPINGS,
+            FlagFeature::GroupDesc => HEADER_GROUP_DESC,
+            FlagFeature::Auxtrace => HEADER_AUXTRACE,
+            FlagFeature::Stat => HEADER_STAT,
+            FlagFeature::Cache => HEADER_CACHE,
+            FlagFeature::SampleTime => HEADER_SAMPLE_TIME,
+            FlagFeature::SampleTopology => HEADER_SAMPLE_TOPOLOGY,
+            FlagFeature::ClockId => HEADER_CLOCKID,
+            FlagFeature::DirFormat => HEADER_DIR_FORMAT,
+            FlagFeature::BpfProgInfo => HEADER_BPF_PROG_INFO,
+            FlagFeature::BpfBtf => HEADER_BPF_BTF,
+            FlagFeature::Compressed => HEADER_COMPRESSED,
+            FlagFeature::CpuPmuCaps => HEADER_CPU_PMU_CAPS,
+            FlagFeature::ClockData => HEADER_CLOCK_DATA,
+            FlagFeature::HybridTopology => HEADER_HYBRID_TOPOLOGY,
+            FlagFeature::HybridCpuPmuCaps => HEADER_HYBRID_CPU_PMU_CAPS,
+        }
+    }
+}
+
 /// The set of feature flags used in the perf file. The perf file contains has one
 /// "feature flag section" for each of the flags. This set is provided in the perf
 /// file header.
@@ -116,12 +154,37 @@ impl FlagFeature {
 pub struct FlagFeatureSet(pub [u64; 4]);
 
 impl FlagFeatureSet {
-    /// Emits all feature flags which are set, from low to high.
+    /// The number of flags in this set.
+    pub fn len(&self) -> usize {
+        let b = &self.0;
+        let len = b[0].count_ones() + b[1].count_ones() + b[2].count_ones() + b[3].count_ones();
+        len as usize
+    }
+
+    /// Whether the set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0 == [0, 0, 0, 0]
+    }
+
+    /// Emits all feature flags in this set, from low to high.
     pub fn iter(&self) -> FlagFeatureSetIterAll {
         FlagFeatureSetIterAll {
-            bit: 0,
-            flags: self.0,
+            current_flag: 0,
+            set: *self,
         }
+    }
+
+    /// Checks if the flag is contained in this set.
+    #[inline]
+    pub fn has_flag(&self, flag: impl Into<u32>) -> bool {
+        let flag: u32 = flag.into();
+        if flag >= 256 {
+            return false;
+        }
+        let flags_chunk_index = (flag / 64) as usize;
+        let flag_bit = flag % 64;
+        let flags_chunk = self.0[flags_chunk_index];
+        (flags_chunk & (1 << flag_bit)) != 0
     }
 }
 
@@ -140,24 +203,20 @@ impl fmt::Debug for FlagFeatureSet {
 }
 
 pub struct FlagFeatureSetIterAll {
-    bit: u32,
-    flags: [u64; 4],
+    current_flag: u32,
+    set: FlagFeatureSet,
 }
 
 impl Iterator for FlagFeatureSetIterAll {
     type Item = u32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.bit < 256 {
-            let bit = self.bit;
-            self.bit += 1;
+        while self.current_flag < 256 {
+            let flag = self.current_flag;
+            self.current_flag += 1;
 
-            let flags_chunk_index = (bit / 64) as usize;
-            let bit_index = bit % 64;
-            let flags_chunk = self.flags[flags_chunk_index];
-            let flag_is_set = (flags_chunk & (1 << bit_index)) != 0;
-            if flag_is_set {
-                return Some(bit);
+            if self.set.has_flag(flag) {
+                return Some(flag);
             }
         }
         None
