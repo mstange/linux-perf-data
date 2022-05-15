@@ -3,23 +3,18 @@ name = "linux-perf-data"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Markus Stange <mstange.moz@gmail.com>"]
+categories = ["development-tools::profiling", "parser-implementations"]
+description = "A parser for the perf.data format. This format is emitted by the Linux perf tool."
+keywords = ["linux", "perf", "parser"]
+readme = "Readme.md"
+documentation = "https://docs.rs/linux-perf-data/"
+repository = "https://github.com/mstange/linux-perf-data/"
+exclude = ["/.github", "/.vscode", "/tests"]
 
 [dependencies]
 byteorder = "1.4.3"
-debugid = "0.8.0"
-framehop = "0.7.0"
-# framehop = { path = "../framehop" }
-futures = "0.3.21"
 memchr = "2.4.1"
-memmap2 = "0.5.3"
-object = "0.28.3"
-profiler-get-symbols = "0.14.0"
-# profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
 thiserror = "1.0.30"
 linux-perf-event-reader = "0.1.0"
 # linux-perf-event-reader = { path = "../linux-perf-event-reader" }
-
-[profile.release]
-debug = true
