@@ -1,3 +1,5 @@
+use std::fmt;
+
 pub const HEADER_TRACING_DATA: u32 = 1;
 pub const HEADER_BUILD_ID: u32 = 2;
 pub const HEADER_HOSTNAME: u32 = 3;
@@ -22,6 +24,9 @@ pub const HEADER_SAMPLE_TIME: u32 = 21;
 pub const HEADER_SAMPLE_TOPOLOGY: u32 = 22;
 pub const HEADER_CLOCKID: u32 = 23;
 pub const HEADER_DIR_FORMAT: u32 = 24;
+pub const HEADER_BPF_PROG_INFO: u32 = 25;
+pub const HEADER_BPF_BTF: u32 = 26;
+pub const HEADER_COMPRESSED: u32 = 27;
 pub const HEADER_CPU_PMU_CAPS: u32 = 28;
 pub const HEADER_CLOCK_DATA: u32 = 29;
 pub const HEADER_HYBRID_TOPOLOGY: u32 = 30;
@@ -53,6 +58,9 @@ pub enum FlagFeature {
     SampleTopology,
     ClockId,
     DirFormat,
+    BpfProgInfo,
+    BpfBtf,
+    Compressed,
     CpuPmuCaps,
     ClockData,
     HybridTopology,
@@ -86,6 +94,9 @@ impl FlagFeature {
             HEADER_SAMPLE_TOPOLOGY => Self::SampleTopology,
             HEADER_CLOCKID => Self::ClockId,
             HEADER_DIR_FORMAT => Self::DirFormat,
+            HEADER_BPF_PROG_INFO => Self::BpfProgInfo,
+            HEADER_BPF_BTF => Self::BpfBtf,
+            HEADER_COMPRESSED => Self::Compressed,
             HEADER_CPU_PMU_CAPS => Self::CpuPmuCaps,
             HEADER_CLOCK_DATA => Self::ClockData,
             HEADER_HYBRID_TOPOLOGY => Self::HybridTopology,
@@ -93,5 +104,62 @@ impl FlagFeature {
             _ => return None,
         };
         Some(feature)
+    }
+}
+
+/// The set of feature flags used in the perf file. The perf file contains has one
+/// "feature flag section" for each of the flags. This set is provided in the perf
+/// file header.
+///
+/// The set has room for 4 * 64 = 256 header flag bits.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FlagFeatureSet(pub [u64; 4]);
+
+impl FlagFeatureSet {
+    /// Emits all feature flags which are set, from low to high.
+    pub fn iter(&self) -> FlagFeatureSetIterAll {
+        FlagFeatureSetIterAll {
+            bit: 0,
+            flags: self.0,
+        }
+    }
+}
+
+impl fmt::Debug for FlagFeatureSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut set = f.debug_set();
+        for i in self.iter() {
+            if let Some(feature) = FlagFeature::from_int(i) {
+                set.entry(&feature);
+            } else {
+                set.entry(&format_args!("Unknown({})", i));
+            }
+        }
+        set.finish()
+    }
+}
+
+pub struct FlagFeatureSetIterAll {
+    bit: u32,
+    flags: [u64; 4],
+}
+
+impl Iterator for FlagFeatureSetIterAll {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.bit < 256 {
+            let bit = self.bit;
+            self.bit += 1;
+
+            let flags_chunk_index = (bit / 64) as usize;
+            let bit_index = bit % 64;
+            let flags_chunk = self.flags[flags_chunk_index];
+            let flag_is_set = (flags_chunk & (1 << bit_index)) != 0;
+            if flag_is_set {
+                return Some(bit);
+            }
+        }
+        None
     }
 }

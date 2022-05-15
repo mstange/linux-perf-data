@@ -7,8 +7,8 @@ mod perf_file;
 
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
-pub use flag_sections::NrCpus;
 pub use flag_feature::FlagFeature;
+pub use flag_sections::NrCpus;
 
 /// This is a re-export of the linux-perf-event-reader crate. We use its types
 /// in our public API.
@@ -72,22 +72,15 @@ impl<C: Read + Seek> PerfFileReader<C> {
         T: ByteOrder,
     {
         // Read the section information for each flag, starting just after the data section.
-        let mut flag = 0u32;
         let feature_pos = header.data_section.offset + header.data_section.size;
         cursor.seek(SeekFrom::Start(feature_pos))?;
         let mut feature_sections_info = Vec::new();
-        for flags_chunk in header.flags {
-            for bit_index in 0..8 {
-                let flag_is_set = (flags_chunk & (1 << bit_index)) != 0;
-                if flag_is_set {
-                    let section = PerfFileSection::parse::<_, T>(&mut cursor)?;
-                    if let Some(feature) = FlagFeature::from_int(flag) {
-                        feature_sections_info.push((feature, section));
-                    } else {
-                        eprintln!("Unrecognized flag feature {}", flag);
-                    }
-                }
-                flag += 1;
+        for flag in header.flags.iter() {
+            let section = PerfFileSection::parse::<_, T>(&mut cursor)?;
+            if let Some(feature) = FlagFeature::from_int(flag) {
+                feature_sections_info.push((feature, section));
+            } else {
+                eprintln!("Unrecognized flag feature {}", flag);
             }
         }
 

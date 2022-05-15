@@ -2,6 +2,8 @@ use std::io::Read;
 
 use byteorder::{ByteOrder, ReadBytesExt};
 
+use crate::flag_feature::FlagFeatureSet;
+
 /// `perf_header`
 ///
 /// The magic number identifies the perf file and the version. Current perf versions
@@ -18,8 +20,8 @@ pub struct PerfHeader {
     pub attr_size: u64,
     pub attr_section: PerfFileSection,
     pub data_section: PerfFileSection,
-    /// Room for 4 * 64 = 256 header flag bits
-    pub flags: [u64; 4],
+    /// Feature flags
+    pub flags: FlagFeatureSet,
 }
 
 impl PerfHeader {
@@ -43,12 +45,12 @@ impl PerfHeader {
         let attr_section = PerfFileSection::parse::<_, T>(&mut reader)?;
         let data_section = PerfFileSection::parse::<_, T>(&mut reader)?;
         let _event_types_section = PerfFileSection::parse::<_, T>(&mut reader)?;
-        let flags = [
+        let flags = FlagFeatureSet([
             reader.read_u64::<T>()?,
             reader.read_u64::<T>()?,
             reader.read_u64::<T>()?,
             reader.read_u64::<T>()?,
-        ];
+        ]);
         Ok(Self {
             magic,
             header_size,
