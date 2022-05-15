@@ -145,10 +145,12 @@ impl<R: Read> PerfFileReader<R> {
         &self.attributes
     }
 
+    /// The set of feature flags used in this perf file.
     pub fn feature_flags(&self) -> FlagFeatureSet {
         self.feature_flags
     }
 
+    /// The raw data of a feature section.
     pub fn feature_section(&self, feature: FlagFeature) -> Option<&[u8]> {
         self.feature_sections
             .iter()
@@ -219,22 +221,28 @@ impl<R: Read> PerfFileReader<R> {
             .transpose()
     }
 
+    /// The hostname where the data was collected (`uname -n`).
     pub fn hostname(&self) -> Result<Option<&str>, Error> {
         self.feature_string(FlagFeature::Hostname)
     }
 
+    /// The OS release where the data was collected (`uname -r`).
     pub fn os_release(&self) -> Result<Option<&str>, Error> {
         self.feature_string(FlagFeature::OsRelease)
     }
 
+    /// The perf user tool version where the data was collected. This is the same
+    /// as the version of the Linux source tree the perf tool was built from.
     pub fn perf_version(&self) -> Result<Option<&str>, Error> {
         self.feature_string(FlagFeature::Version)
     }
 
+    /// The CPU architecture (`uname -m`).
     pub fn arch(&self) -> Result<Option<&str>, Error> {
         self.feature_string(FlagFeature::Arch)
     }
 
+    /// A structure defining the number of CPUs.
     pub fn nr_cpus(&self) -> Result<Option<NrCpus>, Error> {
         self.feature_section(FlagFeature::NrCpus)
             .map(|section| {
@@ -247,6 +255,19 @@ impl<R: Read> PerfFileReader<R> {
             .transpose()
     }
 
+    /// The description of the CPU. On x86 this is the model name
+    /// from `/proc/cpuinfo`.
+    pub fn cpu_desc(&self) -> Result<Option<&str>, Error> {
+        self.feature_string(FlagFeature::Cmdline)
+    }
+
+    /// The exact CPU type. On x86 this is `vendor,family,model,stepping`.
+    /// For example: `GenuineIntel,6,69,1`
+    pub fn cpu_id(&self) -> Result<Option<&str>, Error> {
+        self.feature_string(FlagFeature::Cmdline)
+    }
+
+    /// If true, the data section contains data recorded from `perf stat record`.
     pub fn is_stats(&self) -> bool {
         self.feature_flags.has_flag(FlagFeature::Stat)
     }
