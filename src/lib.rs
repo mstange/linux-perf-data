@@ -8,6 +8,7 @@ mod perf_file;
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
 pub use flag_sections::NrCpus;
+pub use flag_feature::FlagFeature;
 
 /// This is a re-export of the linux-perf-event-reader crate. We use its types
 /// in our public API.
@@ -18,7 +19,6 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use build_id_event::BuildIdEvent;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use flag_feature::FlagFeature;
 use linux_perf_event_reader::records::{ParsedRecord, RawRecord, RecordParseInfo};
 use linux_perf_event_reader::{CpuMode, PerfEventAttr, PerfEventHeader, RawData, RecordType};
 use perf_file::{PerfFileSection, PerfHeader};
