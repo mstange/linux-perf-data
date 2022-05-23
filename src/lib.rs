@@ -14,20 +14,16 @@ pub use flag_sections::{NrCpus, SampleTimeRange};
 /// in our public API.
 pub use linux_perf_event_reader;
 
+pub use linux_perf_event_reader::Endianness;
+
 use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use build_id_event::BuildIdEvent;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use linux_perf_event_reader::records::{ParsedRecord, RawRecord, RecordParseInfo};
+use linux_perf_event_reader::records::{RawRecord, RecordParseInfo};
 use linux_perf_event_reader::{CpuMode, PerfEventAttr, PerfEventHeader, RawData, RecordType};
 use perf_file::{PerfFileSection, PerfHeader};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Endianness {
-    LittleEndian,
-    BigEndian,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DsoBuildId {
@@ -112,7 +108,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
         // TODO: What happens if there's more than one attr? How do we know which
         // records belong to which event?
         let attributes = perf_event_attrs.remove(0);
-        let parse_info = RecordParseInfo::from_attr(&attributes);
+        let parse_info = RecordParseInfo::new(&attributes, endian);
 
         // Move the cursor to the start of the data section so that we can start
         // reading records from it.
@@ -304,12 +300,12 @@ impl<R: Read> PerfFileReader<R> {
     ///
     /// It buffers records until it sees a FINISHED_ROUND record; then it sorts the
     /// buffered records and emits them one by one.
-    pub fn next_record(&mut self) -> Result<Option<ParsedRecord>, Error> {
+    pub fn next_record(&mut self) -> Result<Option<RawRecord>, Error> {
         if self.remaining_pending_records.is_empty() {
             self.read_current_round()?;
         }
         if let Some(pending_record) = self.remaining_pending_records.pop_front() {
-            return Ok(Some(self.convert_pending_record(pending_record)?));
+            return Ok(Some(self.convert_pending_record(pending_record)));
         }
         Ok(None)
     }
@@ -370,8 +366,9 @@ impl<R: Read> PerfFileReader<R> {
                 record_type,
                 misc,
                 data: RawData::from(&buffer[..]),
+                parse_info: self.parse_info,
             };
-            let timestamp = raw_event.timestamp::<T>(&self.parse_info);
+            let timestamp = raw_event.timestamp();
             let sort_key = RecordSortKey { timestamp, offset };
             let pending_record = PendingRecord {
                 sort_key,
@@ -388,11 +385,8 @@ impl<R: Read> PerfFileReader<R> {
         Ok(())
     }
 
-    /// Converts pending_record into an ParsedRecord which references the data in self.current_event_body.
-    fn convert_pending_record(
-        &mut self,
-        pending_record: PendingRecord,
-    ) -> Result<ParsedRecord, Error> {
+    /// Converts pending_record into an RawRecord which references the data in self.current_event_body.
+    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> RawRecord {
         let PendingRecord {
             record_type,
             misc,
@@ -401,17 +395,12 @@ impl<R: Read> PerfFileReader<R> {
         } = pending_record;
         let prev_buffer = std::mem::replace(&mut self.current_event_body, buffer);
         self.buffers_for_recycling.push_back(prev_buffer);
-        let data = RawData::from(&self.current_event_body[..]);
-        let raw_record = RawRecord {
+        RawRecord {
             record_type,
             misc,
-            data,
-        };
-        Ok(if self.endian == Endianness::LittleEndian {
-            raw_record.to_parsed::<byteorder::LittleEndian>(&self.parse_info)
-        } else {
-            raw_record.to_parsed::<byteorder::BigEndian>(&self.parse_info)
-        }?)
+            data: RawData::from(&self.current_event_body[..]),
+            parse_info: self.parse_info,
+        }
     }
 }
 

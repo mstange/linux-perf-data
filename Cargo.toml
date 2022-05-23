@@ -16,5 +16,5 @@ exclude = ["/.github", "/.vscode", "/tests"]
 byteorder = "1.4.3"
 memchr = "2.4.1"
 thiserror = "1.0.30"
-linux-perf-event-reader = "0.2.0"
+linux-perf-event-reader = "0.3.0"
 # linux-perf-event-reader = { path = "../linux-perf-event-reader" }
