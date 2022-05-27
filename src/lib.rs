@@ -288,6 +288,24 @@ impl<R: Read> PerfFileReader<R> {
         }
     }
 
+    /// The total memory in kilobytes. (MemTotal from /proc/meminfo)
+    pub fn total_mem(&self) -> Result<Option<u64>, Error> {
+        let data = match self.feature_section(FlagFeature::TotalMem) {
+            Some(data) => data,
+            None => return Ok(None),
+        };
+        if data.len() < 8 {
+            return Err(Error::FeatureSectionTooSmall);
+        }
+        let b = data;
+        let data = [b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]];
+        let mem = match self.endian {
+            Endianness::LittleEndian => u64::from_le_bytes(data),
+            Endianness::BigEndian => u64::from_be_bytes(data),
+        };
+        Ok(Some(mem))
+    }
+
     fn read_string<'s>(&self, s: &'s [u8]) -> Result<(&'s str, &'s [u8]), Error> {
         if s.len() < 4 {
             return Err(Error::NotEnoughSpaceForStringLen);
