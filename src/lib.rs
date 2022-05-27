@@ -17,12 +17,17 @@ pub use linux_perf_event_reader;
 pub use linux_perf_event_reader::Endianness;
 
 use std::collections::{HashMap, VecDeque};
-use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
+use std::ops::Deref;
 
 use build_id_event::BuildIdEvent;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use linux_perf_event_reader::records::{RawRecord, RecordParseInfo};
-use linux_perf_event_reader::{CpuMode, PerfEventAttr, PerfEventHeader, RawData, RecordType};
+use flag_sections::AttributeDescription;
+use linear_map::LinearMap;
+use linux_perf_event_reader::records::{get_record_event_identifier, RawRecord, RecordParseInfo};
+use linux_perf_event_reader::{
+    AttrFlags, CpuMode, PerfEventHeader, RawData, RecordType, SampleFormat,
+};
 use perf_file::{PerfFileSection, PerfHeader};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -35,12 +40,15 @@ pub struct PerfFileReader<R: Read> {
     reader: R,
     endian: Endianness,
     feature_flags: FlagFeatureSet,
-    feature_sections: Vec<(FlagFeature, Vec<u8>)>,
+    feature_sections: LinearMap<FlagFeature, Vec<u8>>,
     read_offset: u64,
     record_data_len: u64,
     current_event_body: Vec<u8>,
-    attributes: PerfEventAttr,
-    parse_info: RecordParseInfo,
+    /// Guaranteed to have at least one element
+    attributes: Vec<AttributeDescription>,
+    /// Guaranteed to have at least one element
+    parse_infos: Vec<RecordParseInfo>,
+    event_id_to_attr_index: HashMap<u64, usize>,
     /// Sorted by time
     remaining_pending_records: VecDeque<PendingRecord>,
     buffers_for_recycling: VecDeque<Vec<u8>>,
@@ -81,34 +89,64 @@ impl<C: Read + Seek> PerfFileReader<C> {
             }
         }
 
-        let mut feature_sections = Vec::new();
+        let mut feature_sections = LinearMap::new();
         for (feature, section) in feature_sections_info {
             let offset = section.offset;
             let size = usize::try_from(section.size).map_err(|_| Error::SectionSizeTooBig)?;
             let mut data = vec![0; size];
             cursor.seek(SeekFrom::Start(offset))?;
             cursor.read_exact(&mut data)?;
-            feature_sections.push((feature, data));
+            feature_sections.insert(feature, data);
         }
 
-        let attrs_offset = header.attr_section.offset;
-        let attrs_size = header.attr_section.size;
-        cursor.seek(SeekFrom::Start(attrs_offset))?;
-        let mut perf_event_attrs = Vec::new();
-        let attr_size = header.attr_size;
-        let mut offset = 0;
-        while offset + attr_size <= attrs_size {
-            let attr = PerfEventAttr::parse::<_, T>(&mut cursor, Some(attr_size as u32))
-                .map_err(|_| ReadError::PerfEventAttr)?;
-            perf_event_attrs.push(attr);
-            offset += attr_size;
+        let attributes =
+            if let Some(event_desc_section) = feature_sections.get(&FlagFeature::EventDesc) {
+                AttributeDescription::parse_event_desc_section::<_, T>(&event_desc_section[..])?
+            } else if header.event_types_section.size != 0 {
+                AttributeDescription::parse_event_types_section::<_, T>(
+                    &mut cursor,
+                    &header.event_types_section,
+                    header.attr_size,
+                )?
+            } else {
+                AttributeDescription::parse_attr_section::<_, T>(
+                    &mut cursor,
+                    &header.attr_section,
+                    header.attr_size,
+                )?
+            };
+
+        if attributes.is_empty() {
+            return Err(Error::NoAttributes);
         }
 
-        // Grab the first of the perf event attrs.
-        // TODO: What happens if there's more than one attr? How do we know which
-        // records belong to which event?
-        let attributes = perf_event_attrs.remove(0);
-        let parse_info = RecordParseInfo::new(&attributes, endian);
+        let mut event_id_to_attr_index = HashMap::new();
+        for (attr_index, AttributeDescription { event_ids, .. }) in attributes.iter().enumerate() {
+            for event_id in event_ids {
+                event_id_to_attr_index.insert(*event_id, attr_index);
+            }
+        }
+
+        if attributes.len() > 1 {
+            // Make sure that all attributes have IDENTIFIER and the same SAMPLE_ID_ALL setting.
+            // Otherwise we won't be able to know which attr a record belongs to; we need to know
+            // the record's event ID for that, and we can only read the event ID if it's in the
+            // same location regardless of attr.
+            let has_sample_id_all = attributes[0].attr.flags.contains(AttrFlags::SAMPLE_ID_ALL);
+            for (attr_index, AttributeDescription { attr, .. }) in attributes.iter().enumerate() {
+                if !attr.sample_format.contains(SampleFormat::IDENTIFIER) {
+                    return Err(Error::NoIdentifierDespiteMultiEvent(attr_index));
+                }
+                if attr.flags.contains(AttrFlags::SAMPLE_ID_ALL) != has_sample_id_all {
+                    return Err(Error::InconsistentSampleIdAllWithMultiEvent(attr_index));
+                }
+            }
+        }
+
+        let parse_infos = attributes
+            .iter()
+            .map(|attr| RecordParseInfo::new(&attr.attr, endian))
+            .collect();
 
         // Move the cursor to the start of the data section so that we can start
         // reading records from it.
@@ -118,11 +156,12 @@ impl<C: Read + Seek> PerfFileReader<C> {
             reader: cursor,
             endian,
             attributes,
+            parse_infos,
             feature_flags: header.flags,
             feature_sections,
             read_offset: 0,
             record_data_len: header.data_section.size,
-            parse_info,
+            event_id_to_attr_index,
             remaining_pending_records: VecDeque::new(),
             buffers_for_recycling: VecDeque::new(),
             current_event_body: Vec::new(),
@@ -136,7 +175,7 @@ impl<R: Read> PerfFileReader<R> {
     }
 
     /// The attributes which were requested for the perf event.
-    pub fn attributes(&self) -> &PerfEventAttr {
+    pub fn attributes(&self) -> &[AttributeDescription] {
         &self.attributes
     }
 
@@ -147,9 +186,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The raw data of a feature section.
     pub fn feature_section(&self, feature: FlagFeature) -> Option<&[u8]> {
-        self.feature_sections
-            .iter()
-            .find_map(|(f, d)| if *f == feature { Some(&d[..]) } else { None })
+        self.feature_sections.get(&feature).map(Deref::deref)
     }
 
     /// Returns a map of build ID entries. `perf record` creates these records for any DSOs
@@ -186,7 +223,7 @@ impl<R: Read> PerfFileReader<R> {
             Some(section) => section,
             None => return Ok(HashMap::new()),
         };
-        let mut cursor = Cursor::new(section_data);
+        let mut cursor = section_data;
         let mut build_ids = HashMap::new();
         loop {
             let event = match self.endian {
@@ -351,7 +388,7 @@ impl<R: Read> PerfFileReader<R> {
     ///
     /// It buffers records until it sees a FINISHED_ROUND record; then it sorts the
     /// buffered records and emits them one by one.
-    pub fn next_record(&mut self) -> Result<Option<RawRecord>, Error> {
+    pub fn next_record(&mut self) -> Result<Option<(usize, RawRecord)>, Error> {
         if self.remaining_pending_records.is_empty() {
             self.read_current_round()?;
         }
@@ -412,12 +449,29 @@ impl<R: Read> PerfFileReader<R> {
                 .read_exact(&mut buffer)
                 .map_err(|_| ReadError::PerfEventData)?;
 
+            let data = RawData::from(&buffer[..]);
+
+            let attr_index = if self.attributes.len() > 1 {
+                // We have IDENTIFIER (guaranteed by check in parser).
+                let sample_id_all = self.attributes[0]
+                    .attr
+                    .flags
+                    .contains(AttrFlags::SAMPLE_ID_ALL);
+                get_record_event_identifier::<T>(record_type, data, sample_id_all)
+                    .and_then(|event_id| self.event_id_to_attr_index.get(&event_id).cloned())
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+
+            let parse_info = self.parse_infos[attr_index];
+
             let misc = header.misc;
             let raw_event = RawRecord {
                 record_type,
                 misc,
-                data: RawData::from(&buffer[..]),
-                parse_info: self.parse_info,
+                data,
+                parse_info,
             };
             let timestamp = raw_event.timestamp();
             let sort_key = RecordSortKey { timestamp, offset };
@@ -426,6 +480,7 @@ impl<R: Read> PerfFileReader<R> {
                 record_type,
                 misc,
                 buffer,
+                attr_index,
             };
             self.remaining_pending_records.push_back(pending_record);
         }
@@ -437,21 +492,25 @@ impl<R: Read> PerfFileReader<R> {
     }
 
     /// Converts pending_record into an RawRecord which references the data in self.current_event_body.
-    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> RawRecord {
+    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> (usize, RawRecord) {
         let PendingRecord {
             record_type,
             misc,
             buffer,
+            attr_index,
             ..
         } = pending_record;
         let prev_buffer = std::mem::replace(&mut self.current_event_body, buffer);
         self.buffers_for_recycling.push_back(prev_buffer);
-        RawRecord {
-            record_type,
-            misc,
-            data: RawData::from(&self.current_event_body[..]),
-            parse_info: self.parse_info,
-        }
+        (
+            attr_index,
+            RawRecord {
+                record_type,
+                misc,
+                data: RawData::from(&self.current_event_body[..]),
+                parse_info: self.parse_infos[attr_index],
+            },
+        )
     }
 }
 
@@ -461,6 +520,7 @@ struct PendingRecord {
     record_type: RecordType,
     misc: u16,
     buffer: Vec<u8>,
+    attr_index: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

@@ -20,6 +20,7 @@ pub struct PerfHeader {
     pub attr_size: u64,
     pub attr_section: PerfFileSection,
     pub data_section: PerfFileSection,
+    pub event_types_section: PerfFileSection,
     /// Feature flags
     pub flags: FlagFeatureSet,
 }
@@ -44,7 +45,7 @@ impl PerfHeader {
         let attr_size = reader.read_u64::<T>()?;
         let attr_section = PerfFileSection::parse::<_, T>(&mut reader)?;
         let data_section = PerfFileSection::parse::<_, T>(&mut reader)?;
-        let _event_types_section = PerfFileSection::parse::<_, T>(&mut reader)?;
+        let event_types_section = PerfFileSection::parse::<_, T>(&mut reader)?;
         let flags = FlagFeatureSet([
             reader.read_u64::<T>()?,
             reader.read_u64::<T>()?,
@@ -57,6 +58,7 @@ impl PerfHeader {
             attr_size,
             attr_section,
             data_section,
+            event_types_section,
             flags,
         })
     }
@@ -75,6 +77,8 @@ pub struct PerfFileSection {
 }
 
 impl PerfFileSection {
+    pub const STRUCT_SIZE: u64 = 8 + 8;
+
     pub fn parse<R: Read, T: ByteOrder>(mut reader: R) -> Result<Self, std::io::Error> {
         let offset = reader.read_u64::<T>()?;
         let size = reader.read_u64::<T>()?;

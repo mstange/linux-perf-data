@@ -18,6 +18,15 @@ pub enum Error {
     #[error("Section size did not fit into usize")]
     SectionSizeTooBig,
 
+    #[error("The file declares no perf event attributes, so samples cannot be parsed")]
+    NoAttributes,
+
+    #[error("The file contains multiple events but attr {0} does not specify IDENTIFIER")]
+    NoIdentifierDespiteMultiEvent(usize),
+
+    #[error("The file contains multiple events but attr {0} does not agree with attr zero about SAMPLE_ID_ALL")]
+    InconsistentSampleIdAllWithMultiEvent(usize),
+
     #[error("The section wasn't big enough to contain the u32 string length")]
     NotEnoughSpaceForStringLen,
 
