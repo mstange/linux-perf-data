@@ -21,11 +21,17 @@ pub enum Error {
     #[error("The section wasn't big enough to contain the u32 string length")]
     NotEnoughSpaceForStringLen,
 
+    #[error("The section wasn't big enough to contain the u32 string list length")]
+    NotEnoughSpaceForStringListLen,
+
     #[error("The section wasn't big enough to contain the NrCpus struct")]
     NotEnoughSpaceForNrCpus,
 
     #[error("The indicated string length wouldn't fit in the indicated section size")]
     StringLengthTooLong,
+
+    #[error("The indicated string list length wouldn't fit into usize")]
+    StringListLengthBiggerThanUsize,
 
     #[error("The indicated string length wouldn't fit into usize")]
     StringLengthBiggerThanUsize,

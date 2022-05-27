@@ -224,9 +224,10 @@ impl<R: Read> PerfFileReader<R> {
 
     /// Only call this for features whose section is just a perf_header_string.
     fn feature_string(&self, feature: FlagFeature) -> Result<Option<&str>, Error> {
-        self.feature_section(feature)
-            .map(|section| self.read_string(section))
-            .transpose()
+        match self.feature_section(feature) {
+            Some(section) => Ok(Some(self.read_string(section)?.0)),
+            None => Ok(None),
+        }
     }
 
     /// The hostname where the data was collected (`uname -n`).
@@ -279,7 +280,15 @@ impl<R: Read> PerfFileReader<R> {
         self.feature_flags.has_flag(FlagFeature::Stat)
     }
 
-    fn read_string<'s>(&self, s: &'s [u8]) -> Result<&'s str, Error> {
+    /// The perf arg-vector used to collect the data.
+    pub fn cmdline(&self) -> Result<Option<Vec<&str>>, Error> {
+        match self.feature_section(FlagFeature::Cmdline) {
+            Some(section) => Ok(Some(self.read_string_list(section)?.0)),
+            None => Ok(None),
+        }
+    }
+
+    fn read_string<'s>(&self, s: &'s [u8]) -> Result<(&'s str, &'s [u8]), Error> {
         if s.len() < 4 {
             return Err(Error::NotEnoughSpaceForStringLen);
         }
@@ -290,10 +299,34 @@ impl<R: Read> PerfFileReader<R> {
             Endianness::BigEndian => u32::from_be_bytes(len_bytes),
         };
         let len = usize::try_from(len).map_err(|_| Error::StringLengthBiggerThanUsize)?;
-        let s = &rest.get(..len as usize).ok_or(Error::StringLengthTooLong)?;
+        if rest.len() < len {
+            return Err(Error::StringLengthTooLong);
+        }
+        let (s, rest) = rest.split_at(len);
         let actual_len = memchr::memchr(0, s).unwrap_or(s.len());
         let s = std::str::from_utf8(&s[..actual_len]).map_err(|_| Error::StringUtf8)?;
-        Ok(s)
+        Ok((s, rest))
+    }
+
+    fn read_string_list<'s>(&self, s: &'s [u8]) -> Result<(Vec<&'s str>, &'s [u8]), Error> {
+        if s.len() < 4 {
+            return Err(Error::NotEnoughSpaceForStringListLen);
+        }
+        let (len_bytes, mut rest) = s.split_at(4);
+        let len_bytes = [len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
+        let len = match self.endian {
+            Endianness::LittleEndian => u32::from_le_bytes(len_bytes),
+            Endianness::BigEndian => u32::from_be_bytes(len_bytes),
+        };
+        let len = usize::try_from(len).map_err(|_| Error::StringListLengthBiggerThanUsize)?;
+        let mut vec = Vec::with_capacity(len);
+        for _ in 0..len {
+            let s;
+            (s, rest) = self.read_string(rest)?;
+            vec.push(s);
+        }
+
+        Ok((vec, rest))
     }
 
     /// Emits records in the correct order (sorted by time).
