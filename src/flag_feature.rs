@@ -32,6 +32,15 @@ pub const HEADER_CLOCK_DATA: u32 = 29;
 pub const HEADER_HYBRID_TOPOLOGY: u32 = 30;
 pub const HEADER_HYBRID_CPU_PMU_CAPS: u32 = 31;
 
+/// simpleperf `FEAT_META_INFO`
+pub const HEADER_SIMPLEPERF_META_INFO: u32 = 128;
+/// simpleperf `FEAT_DEBUG_UNWIND`
+pub const HEADER_SIMPLEPERF_DEBUG_UNWIND: u32 = 129;
+/// simpleperf `FEAT_DEBUG_UNWIND_FILE`
+pub const HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE: u32 = 130;
+/// simpleperf `FEAT_FILE2`
+pub const HEADER_SIMPLEPERF_FILE2: u32 = 131;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlagFeature {
     TracingData,
@@ -65,6 +74,10 @@ pub enum FlagFeature {
     ClockData,
     HybridTopology,
     HybridCpuPmuCaps,
+    SimpleperfMetaInfo,
+    SimpleperfDebugUnwind,
+    SimpleperfDebugUnwindFile,
+    SimpleperfFile2,
 }
 
 impl FlagFeature {
@@ -101,6 +114,10 @@ impl FlagFeature {
             HEADER_CLOCK_DATA => Self::ClockData,
             HEADER_HYBRID_TOPOLOGY => Self::HybridTopology,
             HEADER_HYBRID_CPU_PMU_CAPS => Self::HybridCpuPmuCaps,
+            HEADER_SIMPLEPERF_META_INFO => Self::SimpleperfMetaInfo,
+            HEADER_SIMPLEPERF_DEBUG_UNWIND => Self::SimpleperfDebugUnwind,
+            HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE => Self::SimpleperfDebugUnwindFile,
+            HEADER_SIMPLEPERF_FILE2 => Self::SimpleperfFile2,
             _ => return None,
         };
         Some(feature)
@@ -141,6 +158,10 @@ impl From<FlagFeature> for u32 {
             FlagFeature::ClockData => HEADER_CLOCK_DATA,
             FlagFeature::HybridTopology => HEADER_HYBRID_TOPOLOGY,
             FlagFeature::HybridCpuPmuCaps => HEADER_HYBRID_CPU_PMU_CAPS,
+            FlagFeature::SimpleperfMetaInfo => HEADER_SIMPLEPERF_META_INFO,
+            FlagFeature::SimpleperfDebugUnwind => HEADER_SIMPLEPERF_DEBUG_UNWIND,
+            FlagFeature::SimpleperfDebugUnwindFile => HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE,
+            FlagFeature::SimpleperfFile2 => HEADER_SIMPLEPERF_FILE2,
         }
     }
 }
