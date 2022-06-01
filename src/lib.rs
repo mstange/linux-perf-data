@@ -4,6 +4,7 @@ mod error;
 mod flag_feature;
 mod flag_sections;
 mod perf_file;
+mod sorter;
 
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
@@ -28,6 +29,7 @@ use linux_perf_event_reader::{
     AttrFlags, CpuMode, PerfEventHeader, RawData, RecordType, SampleFormat,
 };
 use perf_file::{PerfFileSection, PerfHeader};
+use sorter::Sorter;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DsoBuildId {
@@ -48,8 +50,7 @@ pub struct PerfFileReader<R: Read> {
     /// Guaranteed to have at least one element
     parse_infos: Vec<RecordParseInfo>,
     event_id_to_attr_index: HashMap<u64, usize>,
-    /// Sorted by time
-    remaining_pending_records: VecDeque<PendingRecord>,
+    sorter: Sorter<RecordSortKey, PendingRecord>,
     buffers_for_recycling: VecDeque<Vec<u8>>,
 }
 
@@ -161,7 +162,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
             read_offset: 0,
             record_data_len: header.data_section.size,
             event_id_to_attr_index,
-            remaining_pending_records: VecDeque::new(),
+            sorter: Sorter::new(),
             buffers_for_recycling: VecDeque::new(),
             current_event_body: Vec::new(),
         })
@@ -388,38 +389,28 @@ impl<R: Read> PerfFileReader<R> {
     /// It buffers records until it sees a FINISHED_ROUND record; then it sorts the
     /// buffered records and emits them one by one.
     pub fn next_record(&mut self) -> Result<Option<(usize, RawRecord)>, Error> {
-        if self.remaining_pending_records.is_empty() {
-            self.read_current_round()?;
+        if !self.sorter.has_more() {
+            self.read_next_round()?;
         }
-        if let Some(pending_record) = self.remaining_pending_records.pop_front() {
+        if let Some(pending_record) = self.sorter.get_next() {
             return Ok(Some(self.convert_pending_record(pending_record)));
         }
         Ok(None)
     }
 
-    /// Reads events into self.remaining_pending_records until a FINISHED_ROUND
-    /// record is found and self.remaining_pending_records is non-empty, or until
-    /// we've run out of records to read.
-    ///
-    /// When this function returns, self.remaining_pending_records is sorted by
-    /// timestamp.
-    fn read_current_round(&mut self) -> Result<(), Error> {
+    /// Reads events into self.sorter until a FINISHED_ROUND record is found
+    /// and self.sorter is non-empty, or until we've run out of records to read.
+    fn read_next_round(&mut self) -> Result<(), Error> {
         if self.endian == Endianness::LittleEndian {
-            self.read_current_round_impl::<byteorder::LittleEndian>()
+            self.read_next_round_impl::<byteorder::LittleEndian>()
         } else {
-            self.read_current_round_impl::<byteorder::BigEndian>()
+            self.read_next_round_impl::<byteorder::BigEndian>()
         }
     }
 
-    /// Reads events into self.remaining_pending_records until a FINISHED_ROUND
-    /// record is found and self.remaining_pending_records is non-empty, or until
-    /// we've run out of records to read.
-    ///
-    /// When this function returns, self.remaining_pending_records is sorted by
-    /// timestamp.
-    fn read_current_round_impl<T: ByteOrder>(&mut self) -> Result<(), Error> {
-        assert!(self.remaining_pending_records.is_empty());
-
+    /// Reads events into self.sorter until a FINISHED_ROUND record is found
+    /// and self.sorter is non-empty, or until we've run out of records to read.
+    fn read_next_round_impl<T: ByteOrder>(&mut self) -> Result<(), Error> {
         while self.read_offset < self.record_data_len {
             let offset = self.read_offset;
             let header = PerfEventHeader::parse::<_, T>(&mut self.reader)?;
@@ -431,14 +422,15 @@ impl<R: Read> PerfFileReader<R> {
 
             let record_type = RecordType(header.type_);
             if record_type == RecordType::FINISHED_ROUND {
-                if self.remaining_pending_records.is_empty() {
-                    // Keep going so that we never return with remaining_pending_records
-                    // being empty, unless we've truly run out of data to read.
-                    continue;
-                } else {
-                    // We've finished a non-empty round. Exit the loop.
-                    break;
+                self.sorter.finish_round();
+                if self.sorter.has_more() {
+                    // The sorter is non-empty. We're done.
+                    return Ok(());
                 }
+
+                // Keep going so that we never exit the loop with sorter
+                // being empty, unless we've truly run out of data to read.
+                continue;
             }
 
             let event_body_len = size - PerfEventHeader::STRUCT_SIZE;
@@ -472,21 +464,21 @@ impl<R: Read> PerfFileReader<R> {
                 data,
                 parse_info,
             };
+
             let timestamp = raw_event.timestamp();
             let sort_key = RecordSortKey { timestamp, offset };
             let pending_record = PendingRecord {
-                sort_key,
                 record_type,
                 misc,
                 buffer,
                 attr_index,
             };
-            self.remaining_pending_records.push_back(pending_record);
+            self.sorter.insert_unordered(sort_key, pending_record);
         }
 
-        self.remaining_pending_records
-            .make_contiguous()
-            .sort_unstable_by_key(|r| r.sort_key);
+        // Everything has been read.
+        self.sorter.finish();
+
         Ok(())
     }
 
@@ -515,14 +507,13 @@ impl<R: Read> PerfFileReader<R> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PendingRecord {
-    sort_key: RecordSortKey,
     record_type: RecordType,
     misc: u16,
     buffer: Vec<u8>,
     attr_index: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct RecordSortKey {
     timestamp: Option<u64>,
     offset: u64,
