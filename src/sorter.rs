@@ -102,8 +102,8 @@ impl<K: Ord + Clone + Default, V> Sorter<K, V> {
 
             // Move everything <= prev_max from incoming into outgoing.
             for _ in 0..self.incoming_lte_prev_max_count {
-                self.outgoing
-                    .push_back(self.incoming.pop_front().unwrap().1);
+                let (_key, value) = self.incoming.pop_front().unwrap();
+                self.outgoing.push_back(value);
             }
         }
 
