@@ -1,5 +1,36 @@
 use std::collections::VecDeque;
 
+/// Accumulates unordered key-value pairs and emits them in order, sorted by the key.
+///
+/// The caller can indicate "rounds" with the property that round N cannot
+/// overlap with round N + 2. In other words, the lowest key in round N + 2
+/// must be greater than or equal to the highest key in round N.
+///
+/// Every time a round is finished, some values become available for ordered
+/// iteration, specifically those values whose order cannot be affected by
+/// upcoming values due to the overlap guarantee.
+//
+// Implementation notes:
+//
+//   i: incoming values (unordered)
+//   o: outgoing values (ordered)
+//
+// Round 1:          |<============>|  // insert_unordered is called with unordered keys in this range
+//                   ^              ^--- cur_max
+//                   `------------------ prev_max
+//  finish_round()   iiiiiiiiiiiiiiii  // nothing is available in outgoing yet, everything is still incoming
+//                                  ^--- cur_max
+//                                  ^--- prev_max
+// Round 2:                 |<======================>|  // more insert_unordered calls
+//                                  ^                ^--- cur_max
+//                                  `-------------------- prev_max
+//  finish_round()   ooooooooooooooooiiiiiiiiiiiiiiiii  // everything <= prev_max is moved to outgoing
+//                                                   ^--- cur_max
+//                                                   ^--- prev_max
+// Round 3:                            |<================>|  // more insert_unordered calls, no overlap with round 1
+//                                                   ^    ^--- cur_max
+//                                                   `-------- prev_max
+//  finish_round()                   oooooooooooooooooiiiii  // everything <= prev_max is moved to outgoing
 #[derive(Debug, Clone)]
 pub struct Sorter<K: Ord + Default, V> {
     /// This list is ordered and all values are <= prev_max.
@@ -14,18 +45,6 @@ pub struct Sorter<K: Ord + Default, V> {
     incoming_lte_prev_max_count: usize,
 }
 
-// Round 1:          |<============>|
-//                  prev_max       cur_max
-//  finish_round()   iiiiiiiiiiiiiiii
-//                          |      prev_max
-// Round 2:                 |<======================>|
-//                                 prev_max         cur_max
-//  finish_round()   ooooooooooooooooiiiiiiiiiiiiiiiii
-//                                  |  |            prev_max
-// Round 3:                         |  |<================>|
-//                                                  prev_max cur_max
-//  finish_round                    ooooooooooooooooooiiiii
-
 impl<K: Ord + Clone + Default, V> Default for Sorter<K, V> {
     fn default() -> Self {
         Self {
@@ -39,6 +58,7 @@ impl<K: Ord + Clone + Default, V> Default for Sorter<K, V> {
 }
 
 impl<K: Ord + Clone + Default, V> Sorter<K, V> {
+    /// Create a new sorter.
     pub fn new() -> Self {
         Default::default()
     }
@@ -51,14 +71,14 @@ impl<K: Ord + Clone + Default, V> Sorter<K, V> {
 
     /// Returns values in order.
     ///
-    /// The order is only guaranteed if the caller respected the contractt for
-    /// insert_unordered.
+    /// The order is only guaranteed if the caller respected the contract for
+    /// `insert_unordered`.
     pub fn get_next(&mut self) -> Option<V> {
         self.outgoing.pop_front()
     }
 
-    /// Insert an element. The caller guarantees that key is at least as large
-    /// as the largest key seen two finish_round calls ago. In other words, round
+    /// Insert an element. The caller guarantees that `key` is at least as large
+    /// as the largest key seen two `finish_round` calls ago. In other words, round
     /// N must not overlap with round N - 2.
     pub fn insert_unordered(&mut self, key: K, value: V) {
         if key <= self.prev_max {
@@ -70,7 +90,7 @@ impl<K: Ord + Clone + Default, V> Sorter<K, V> {
     }
 
     /// Finish the current round. This makes some of the inserted values available
-    /// from get_next, specifically any values which cannot have their order affected
+    /// from `get_next`, specifically any values which cannot have their order affected
     /// by values from the next round.
     pub fn finish_round(&mut self) {
         if let Some(n) = self.incoming_lte_prev_max_count.checked_sub(1) {
@@ -92,7 +112,7 @@ impl<K: Ord + Clone + Default, V> Sorter<K, V> {
     }
 
     /// Finish all rounds and declare that no more values will be inserted after this call.
-    /// This makes all inserted values available from get_next().
+    /// This makes all inserted values available from `get_next()`.
     pub fn finish(&mut self) {
         self.incoming
             .make_contiguous()
