@@ -69,7 +69,7 @@ pub struct AttributeDescription {
 }
 
 impl AttributeDescription {
-    /// Parse the HEADER_EVENT_DESC section into a Vec of AttributeDescription structs.
+    /// Parse the `HEADER_EVENT_DESC` section of a perf.data file into a Vec of `AttributeDescription` structs.
     pub fn parse_event_desc_section<R: Read, T: ByteOrder>(
         mut reader: R,
     ) -> Result<Vec<Self>, std::io::Error> {
@@ -105,7 +105,7 @@ impl AttributeDescription {
         Ok(attributes)
     }
 
-    /// Parse the event_types section into a Vec of AttributeDescription structs.
+    /// Parse the `event_types` section of a perf.data file into a Vec of `AttributeDescription` structs.
     /// This section was used in the past but is no longer used.
     /// Only call this function if event_types_section.size is non-zero.
     pub fn parse_event_types_section<C: Read + Seek, T: ByteOrder>(
@@ -145,7 +145,7 @@ impl AttributeDescription {
         Ok(attributes)
     }
 
-    /// Parse the attr section into a Vec of AttributeDescription structs.
+    /// Parse the `attr` section of a perf.data file into a Vec of `AttributeDescription` structs.
     /// This section is used as a last resort because it does not have any
     /// information about event IDs. If multiple events are observed, we will
     /// not be able to know which event record belongs to which attr.
@@ -167,5 +167,20 @@ impl AttributeDescription {
             });
         }
         Ok(attributes)
+    }
+
+    /// The event attributes.
+    pub fn attributes(&self) -> &PerfEventAttr {
+        &self.attr
+    }
+
+    /// The event name.
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    /// The IDs for this event.
+    pub fn ids(&self) -> &[u64] {
+        &self.event_ids
     }
 }

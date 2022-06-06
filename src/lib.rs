@@ -40,6 +40,29 @@ pub struct DsoBuildId {
     pub build_id: Vec<u8>,
 }
 
+/// Reads a perf.data file.
+///
+/// # Example
+///
+/// ```
+/// use linux_perf_data::{AttributeDescription, PerfFileReader};
+///
+/// # fn wrapper() -> Result<(), linux_perf_data::Error> {
+/// let file = std::fs::File::open("perf.data")?;
+/// let reader = std::io::BufReader::new(file);
+/// let mut perf_file = PerfFileReader::parse_file(reader)?;
+/// let event_names: Vec<_> =
+///     perf_file.event_attributes().iter().filter_map(AttributeDescription::name).collect();
+/// println!("perf events: {}", event_names.join(", "));
+///
+/// while let Some((_attr_index, raw_record)) = perf_file.next_record()? {
+///     let record_type = raw_record.record_type;
+///     let parsed_record = raw_record.parse()?;
+///     println!("{:?}: {:?}", record_type, parsed_record);
+/// }
+/// # Ok(())
+/// # }
+/// ```
 pub struct PerfFileReader<R: Read> {
     reader: R,
     endian: Endianness,
