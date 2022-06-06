@@ -5,7 +5,7 @@ use linux_perf_event_reader::PerfEventAttr;
 
 use crate::{perf_file::PerfFileSection, Error, ReadError};
 
-/// `nr_cpus`
+/// The number of available and online CPUs. (`nr_cpus`)
 #[derive(Debug, Clone, Copy)]
 pub struct NrCpus {
     /// CPUs not yet onlined

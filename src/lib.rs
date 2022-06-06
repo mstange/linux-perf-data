@@ -34,13 +34,7 @@ use linux_perf_event_reader::{
 use perf_file::{PerfFileSection, PerfHeader};
 use sorter::Sorter;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DsoBuildId {
-    pub path: Vec<u8>,
-    pub build_id: Vec<u8>,
-}
-
-/// Reads a perf.data file.
+/// Parser for the perf.data file format.
 ///
 /// # Example
 ///
@@ -265,7 +259,7 @@ impl<R: Read> PerfFileReader<R> {
     ///
     /// This method is a bit lossy. We discard the pid, because it seems to be always -1 in
     /// the files I've tested. We also discard any entries for which we fail to create a `DsoKey`.
-    pub fn build_ids(&self) -> Result<HashMap<DsoKey, DsoBuildId>, Error> {
+    pub fn build_ids(&self) -> Result<HashMap<DsoKey, DsoInfo>, Error> {
         let section_data = match self.feature_section_data(FlagFeature::BuildId) {
             Some(section) => section,
             None => return Ok(HashMap::new()),
@@ -288,7 +282,7 @@ impl<R: Read> PerfFileReader<R> {
                 Some(dso_key) => dso_key,
                 None => continue,
             };
-            build_ids.insert(dso_key, DsoBuildId { path, build_id });
+            build_ids.insert(dso_key, DsoInfo { path, build_id });
         }
         Ok(build_ids)
     }
@@ -545,6 +539,16 @@ impl<R: Read> PerfFileReader<R> {
             },
         )
     }
+}
+
+/// The file path and the build ID of a DSO.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DsoInfo {
+    /// The file path. Can be an absolute path or a special string
+    /// of various forms, e.g. `[vdso]`.
+    pub path: Vec<u8>,
+    /// The build ID.
+    pub build_id: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
