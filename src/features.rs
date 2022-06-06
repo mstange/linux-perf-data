@@ -141,6 +141,8 @@ impl fmt::Debug for Feature {
 pub struct FeatureSet(pub [u64; 4]);
 
 impl FeatureSet {
+    pub const MAX_BITS: u32 = 64 * 4;
+
     /// The number of features in this set.
     pub fn len(&self) -> usize {
         let b = &self.0;
@@ -198,7 +200,7 @@ impl Iterator for FeatureSetIter {
     type Item = Feature;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.current_feature.0 < 256 {
+        while self.current_feature.0 < FeatureSet::MAX_BITS {
             let feature = self.current_feature;
             self.current_feature.0 += 1;
 
