@@ -24,7 +24,10 @@ use std::ops::Deref;
 use build_id_event::BuildIdEvent;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use linear_map::LinearMap;
-use linux_perf_event_reader::records::{get_record_event_identifier, RawRecord, RecordParseInfo};
+use linux_perf_event_reader::records::{
+    get_record_id, get_record_identifier, get_record_timestamp, RawRecord, RecordIdParseInfo,
+    RecordParseInfo,
+};
 use linux_perf_event_reader::{
     AttrFlags, CpuMode, PerfEventHeader, RawData, RecordType, SampleFormat,
 };
@@ -47,6 +50,7 @@ pub struct PerfFileReader<R: Read> {
     current_event_body: Vec<u8>,
     /// Guaranteed to have at least one element
     attributes: Vec<AttributeDescription>,
+    id_parse_infos: IdParseInfos,
     /// Guaranteed to have at least one element
     parse_infos: Vec<RecordParseInfo>,
     event_id_to_attr_index: HashMap<u64, usize>,
@@ -116,10 +120,6 @@ impl<C: Read + Seek> PerfFileReader<C> {
                 )?
             };
 
-        if attributes.is_empty() {
-            return Err(Error::NoAttributes);
-        }
-
         let mut event_id_to_attr_index = HashMap::new();
         for (attr_index, AttributeDescription { event_ids, .. }) in attributes.iter().enumerate() {
             for event_id in event_ids {
@@ -127,26 +127,43 @@ impl<C: Read + Seek> PerfFileReader<C> {
             }
         }
 
-        if attributes.len() > 1 {
+        let parse_infos: Vec<_> = attributes
+            .iter()
+            .map(|attr| RecordParseInfo::new(&attr.attr, endian))
+            .collect();
+
+        let first_attr = attributes.first().ok_or(Error::NoAttributes)?;
+
+        let first_has_sample_id_all = first_attr.attr.flags.contains(AttrFlags::SAMPLE_ID_ALL);
+        let (first_parse_info, remaining_parse_infos) = parse_infos.split_first().unwrap();
+
+        let id_parse_infos = if remaining_parse_infos.is_empty() {
+            IdParseInfos::OnlyOneEvent
+        } else if remaining_parse_infos
+            .iter()
+            .all(|parse_info| parse_info.id_parse_info == first_parse_info.id_parse_info)
+        {
+            IdParseInfos::Same(first_parse_info.id_parse_info)
+        } else {
             // Make sure that all attributes have IDENTIFIER and the same SAMPLE_ID_ALL setting.
             // Otherwise we won't be able to know which attr a record belongs to; we need to know
-            // the record's event ID for that, and we can only read the event ID if it's in the
-            // same location regardless of attr.
-            let has_sample_id_all = attributes[0].attr.flags.contains(AttrFlags::SAMPLE_ID_ALL);
+            // the record's ID for that, and we can only read the ID if it's in the same location
+            // regardless of attr.
+            // In theory we could make the requirements weaker, and take the record type into
+            // account for disambiguation. For example, if there are two events, but one of them
+            // only creates SAMPLE records and the other only non-SAMPLE records, we don't
+            // necessarily need IDENTIFIER in order to be able to read the record ID.
             for (attr_index, AttributeDescription { attr, .. }) in attributes.iter().enumerate() {
                 if !attr.sample_format.contains(SampleFormat::IDENTIFIER) {
                     return Err(Error::NoIdentifierDespiteMultiEvent(attr_index));
                 }
-                if attr.flags.contains(AttrFlags::SAMPLE_ID_ALL) != has_sample_id_all {
+                if attr.flags.contains(AttrFlags::SAMPLE_ID_ALL) != first_has_sample_id_all {
                     return Err(Error::InconsistentSampleIdAllWithMultiEvent(attr_index));
                 }
             }
-        }
 
-        let parse_infos = attributes
-            .iter()
-            .map(|attr| RecordParseInfo::new(&attr.attr, endian))
-            .collect();
+            IdParseInfos::PerAttribute(first_has_sample_id_all)
+        };
 
         // Move the cursor to the start of the data section so that we can start
         // reading records from it.
@@ -157,6 +174,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
             endian,
             attributes,
             parse_infos,
+            id_parse_infos,
             feature_flags: header.flags,
             feature_sections,
             read_offset: 0,
@@ -442,31 +460,25 @@ impl<R: Read> PerfFileReader<R> {
 
             let data = RawData::from(&buffer[..]);
 
-            let attr_index = if self.attributes.len() > 1 {
-                // We have IDENTIFIER (guaranteed by check in parser).
-                let sample_id_all = self.attributes[0]
-                    .attr
-                    .flags
-                    .contains(AttrFlags::SAMPLE_ID_ALL);
-                get_record_event_identifier::<T>(record_type, data, sample_id_all)
-                    .and_then(|event_id| self.event_id_to_attr_index.get(&event_id).cloned())
-                    .unwrap_or(0)
-            } else {
-                0
+            let attr_index = match &self.id_parse_infos {
+                IdParseInfos::OnlyOneEvent => 0,
+                IdParseInfos::Same(id_parse_info) => {
+                    get_record_id::<T>(record_type, data, id_parse_info)
+                        .and_then(|id| self.event_id_to_attr_index.get(&id).cloned())
+                        .unwrap_or(0)
+                }
+                IdParseInfos::PerAttribute(sample_id_all) => {
+                    // We have IDENTIFIER (guaranteed by PerAttribute).
+                    get_record_identifier::<T>(record_type, data, *sample_id_all)
+                        .and_then(|id| self.event_id_to_attr_index.get(&id).cloned())
+                        .unwrap_or(0)
+                }
             };
 
             let parse_info = self.parse_infos[attr_index];
-
-            let misc = header.misc;
-            let raw_event = RawRecord {
-                record_type,
-                misc,
-                data,
-                parse_info,
-            };
-
-            let timestamp = raw_event.timestamp();
+            let timestamp = get_record_timestamp::<T>(record_type, data, &parse_info);
             let sort_key = RecordSortKey { timestamp, offset };
+            let misc = header.misc;
             let pending_record = PendingRecord {
                 record_type,
                 misc,
@@ -503,6 +515,17 @@ impl<R: Read> PerfFileReader<R> {
             },
         )
     }
+}
+
+#[derive(Debug, Clone)]
+enum IdParseInfos {
+    /// There is only one event.
+    OnlyOneEvent,
+    /// There are multiple events, but all events are parsed the same way.
+    Same(RecordIdParseInfo),
+    /// All elements are guaranteed to have [`SampleFormat::IDENTIFIER`] set in `attr.sample_format`.
+    /// The inner element indicates sample_id_all.
+    PerAttribute(bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
