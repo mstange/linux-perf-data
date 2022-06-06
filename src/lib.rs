@@ -9,7 +9,7 @@ mod sorter;
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
 pub use feature_sections::{AttributeDescription, NrCpus, SampleTimeRange};
-pub use features::{Feature, FeatureSet};
+pub use features::{Feature, FeatureSet, FeatureSetIter};
 
 /// This is a re-export of the linux-perf-event-reader crate. We use its types
 /// in our public API.

@@ -194,9 +194,9 @@ impl FeatureSet {
         self.0 == [0, 0, 0, 0]
     }
 
-    /// Emits all features in this set, from low to high.
-    pub fn iter(&self) -> FeatureSetIterAll {
-        FeatureSetIterAll {
+    /// Returns an iterator over all features in this set, from low to high.
+    pub fn iter(&self) -> FeatureSetIter {
+        FeatureSetIter {
             current_feature: 0,
             set: *self,
         }
@@ -230,12 +230,17 @@ impl fmt::Debug for FeatureSet {
     }
 }
 
-pub struct FeatureSetIterAll {
+/// An iterator over all the features that are included in a [`FeatureSet`],
+/// ordered from low to high feature bit.
+///
+/// The iteration order is the order in which the feature sections are stored
+/// in a perf.data file.
+pub struct FeatureSetIter {
     current_feature: u32,
     set: FeatureSet,
 }
 
-impl Iterator for FeatureSetIterAll {
+impl Iterator for FeatureSetIter {
     type Item = u32;
 
     fn next(&mut self) -> Option<Self::Item> {
