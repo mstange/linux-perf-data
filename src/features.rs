@@ -48,127 +48,86 @@ pub const HEADER_SIMPLEPERF_FILE2: u32 = 131;
 /// The feature sections are stored just after the file's data section; there's
 /// one section for each enabled feature, ordered from low feature bit to high
 /// feature bit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Feature {
-    TracingData,
-    BuildId,
-    Hostname,
-    OsRelease,
-    Version,
-    Arch,
-    NrCpus,
-    CpuDesc,
-    CpuId,
-    TotalMem,
-    Cmdline,
-    EventDesc,
-    CpuTopology,
-    NumaTopology,
-    BranchStack,
-    PmuMappings,
-    GroupDesc,
-    Auxtrace,
-    Stat,
-    Cache,
-    SampleTime,
-    SampleTopology,
-    ClockId,
-    DirFormat,
-    BpfProgInfo,
-    BpfBtf,
-    Compressed,
-    CpuPmuCaps,
-    ClockData,
-    HybridTopology,
-    HybridCpuPmuCaps,
-    SimpleperfMetaInfo,
-    SimpleperfDebugUnwind,
-    SimpleperfDebugUnwindFile,
-    SimpleperfFile2,
-}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Feature(pub u32);
 
 impl Feature {
-    pub fn from_int(i: u32) -> Option<Self> {
-        let feature = match i {
-            HEADER_TRACING_DATA => Self::TracingData,
-            HEADER_BUILD_ID => Self::BuildId,
-            HEADER_HOSTNAME => Self::Hostname,
-            HEADER_OSRELEASE => Self::OsRelease,
-            HEADER_VERSION => Self::Version,
-            HEADER_ARCH => Self::Arch,
-            HEADER_NRCPUS => Self::NrCpus,
-            HEADER_CPUDESC => Self::CpuDesc,
-            HEADER_CPUID => Self::CpuId,
-            HEADER_TOTAL_MEM => Self::TotalMem,
-            HEADER_CMDLINE => Self::Cmdline,
-            HEADER_EVENT_DESC => Self::EventDesc,
-            HEADER_CPU_TOPOLOGY => Self::CpuTopology,
-            HEADER_NUMA_TOPOLOGY => Self::NumaTopology,
-            HEADER_BRANCH_STACK => Self::BranchStack,
-            HEADER_PMU_MAPPINGS => Self::PmuMappings,
-            HEADER_GROUP_DESC => Self::GroupDesc,
-            HEADER_AUXTRACE => Self::Auxtrace,
-            HEADER_STAT => Self::Stat,
-            HEADER_CACHE => Self::Cache,
-            HEADER_SAMPLE_TIME => Self::SampleTime,
-            HEADER_SAMPLE_TOPOLOGY => Self::SampleTopology,
-            HEADER_CLOCKID => Self::ClockId,
-            HEADER_DIR_FORMAT => Self::DirFormat,
-            HEADER_BPF_PROG_INFO => Self::BpfProgInfo,
-            HEADER_BPF_BTF => Self::BpfBtf,
-            HEADER_COMPRESSED => Self::Compressed,
-            HEADER_CPU_PMU_CAPS => Self::CpuPmuCaps,
-            HEADER_CLOCK_DATA => Self::ClockData,
-            HEADER_HYBRID_TOPOLOGY => Self::HybridTopology,
-            HEADER_HYBRID_CPU_PMU_CAPS => Self::HybridCpuPmuCaps,
-            HEADER_SIMPLEPERF_META_INFO => Self::SimpleperfMetaInfo,
-            HEADER_SIMPLEPERF_DEBUG_UNWIND => Self::SimpleperfDebugUnwind,
-            HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE => Self::SimpleperfDebugUnwindFile,
-            HEADER_SIMPLEPERF_FILE2 => Self::SimpleperfFile2,
-            _ => return None,
-        };
-        Some(feature)
-    }
+    pub const TRACING_DATA: Self = Self(HEADER_TRACING_DATA);
+    pub const BUILD_ID: Self = Self(HEADER_BUILD_ID);
+    pub const HOSTNAME: Self = Self(HEADER_HOSTNAME);
+    pub const OSRELEASE: Self = Self(HEADER_OSRELEASE);
+    pub const VERSION: Self = Self(HEADER_VERSION);
+    pub const ARCH: Self = Self(HEADER_ARCH);
+    pub const NRCPUS: Self = Self(HEADER_NRCPUS);
+    pub const CPUDESC: Self = Self(HEADER_CPUDESC);
+    pub const CPUID: Self = Self(HEADER_CPUID);
+    pub const TOTAL_MEM: Self = Self(HEADER_TOTAL_MEM);
+    pub const CMDLINE: Self = Self(HEADER_CMDLINE);
+    pub const EVENT_DESC: Self = Self(HEADER_EVENT_DESC);
+    pub const CPU_TOPOLOGY: Self = Self(HEADER_CPU_TOPOLOGY);
+    pub const NUMA_TOPOLOGY: Self = Self(HEADER_NUMA_TOPOLOGY);
+    pub const BRANCH_STACK: Self = Self(HEADER_BRANCH_STACK);
+    pub const PMU_MAPPINGS: Self = Self(HEADER_PMU_MAPPINGS);
+    pub const GROUP_DESC: Self = Self(HEADER_GROUP_DESC);
+    pub const AUXTRACE: Self = Self(HEADER_AUXTRACE);
+    pub const STAT: Self = Self(HEADER_STAT);
+    pub const CACHE: Self = Self(HEADER_CACHE);
+    pub const SAMPLE_TIME: Self = Self(HEADER_SAMPLE_TIME);
+    pub const SAMPLE_TOPOLOGY: Self = Self(HEADER_SAMPLE_TOPOLOGY);
+    pub const CLOCKID: Self = Self(HEADER_CLOCKID);
+    pub const DIR_FORMAT: Self = Self(HEADER_DIR_FORMAT);
+    pub const BPF_PROG_INFO: Self = Self(HEADER_BPF_PROG_INFO);
+    pub const BPF_BTF: Self = Self(HEADER_BPF_BTF);
+    pub const COMPRESSED: Self = Self(HEADER_COMPRESSED);
+    pub const CPU_PMU_CAPS: Self = Self(HEADER_CPU_PMU_CAPS);
+    pub const CLOCK_DATA: Self = Self(HEADER_CLOCK_DATA);
+    pub const HYBRID_TOPOLOGY: Self = Self(HEADER_HYBRID_TOPOLOGY);
+    pub const HYBRID_CPU_PMU_CAPS: Self = Self(HEADER_HYBRID_CPU_PMU_CAPS);
+    pub const SIMPLEPERF_META_INFO: Self = Self(HEADER_SIMPLEPERF_META_INFO);
+    pub const SIMPLEPERF_DEBUG_UNWIND: Self = Self(HEADER_SIMPLEPERF_DEBUG_UNWIND);
+    pub const SIMPLEPERF_DEBUG_UNWIND_FILE: Self = Self(HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE);
+    pub const SIMPLEPERF_FILE2: Self = Self(HEADER_SIMPLEPERF_FILE2);
 }
 
-impl From<Feature> for u32 {
-    fn from(feature: Feature) -> Self {
-        match feature {
-            Feature::TracingData => HEADER_TRACING_DATA,
-            Feature::BuildId => HEADER_BUILD_ID,
-            Feature::Hostname => HEADER_HOSTNAME,
-            Feature::OsRelease => HEADER_OSRELEASE,
-            Feature::Version => HEADER_VERSION,
-            Feature::Arch => HEADER_ARCH,
-            Feature::NrCpus => HEADER_NRCPUS,
-            Feature::CpuDesc => HEADER_CPUDESC,
-            Feature::CpuId => HEADER_CPUID,
-            Feature::TotalMem => HEADER_TOTAL_MEM,
-            Feature::Cmdline => HEADER_CMDLINE,
-            Feature::EventDesc => HEADER_EVENT_DESC,
-            Feature::CpuTopology => HEADER_CPU_TOPOLOGY,
-            Feature::NumaTopology => HEADER_NUMA_TOPOLOGY,
-            Feature::BranchStack => HEADER_BRANCH_STACK,
-            Feature::PmuMappings => HEADER_PMU_MAPPINGS,
-            Feature::GroupDesc => HEADER_GROUP_DESC,
-            Feature::Auxtrace => HEADER_AUXTRACE,
-            Feature::Stat => HEADER_STAT,
-            Feature::Cache => HEADER_CACHE,
-            Feature::SampleTime => HEADER_SAMPLE_TIME,
-            Feature::SampleTopology => HEADER_SAMPLE_TOPOLOGY,
-            Feature::ClockId => HEADER_CLOCKID,
-            Feature::DirFormat => HEADER_DIR_FORMAT,
-            Feature::BpfProgInfo => HEADER_BPF_PROG_INFO,
-            Feature::BpfBtf => HEADER_BPF_BTF,
-            Feature::Compressed => HEADER_COMPRESSED,
-            Feature::CpuPmuCaps => HEADER_CPU_PMU_CAPS,
-            Feature::ClockData => HEADER_CLOCK_DATA,
-            Feature::HybridTopology => HEADER_HYBRID_TOPOLOGY,
-            Feature::HybridCpuPmuCaps => HEADER_HYBRID_CPU_PMU_CAPS,
-            Feature::SimpleperfMetaInfo => HEADER_SIMPLEPERF_META_INFO,
-            Feature::SimpleperfDebugUnwind => HEADER_SIMPLEPERF_DEBUG_UNWIND,
-            Feature::SimpleperfDebugUnwindFile => HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE,
-            Feature::SimpleperfFile2 => HEADER_SIMPLEPERF_FILE2,
+impl fmt::Debug for Feature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::TRACING_DATA => "TRACING_DATA".fmt(f),
+            Self::BUILD_ID => "BUILD_ID".fmt(f),
+            Self::HOSTNAME => "HOSTNAME".fmt(f),
+            Self::OSRELEASE => "OSRELEASE".fmt(f),
+            Self::VERSION => "VERSION".fmt(f),
+            Self::ARCH => "ARCH".fmt(f),
+            Self::NRCPUS => "NRCPUS".fmt(f),
+            Self::CPUDESC => "CPUDESC".fmt(f),
+            Self::CPUID => "CPUID".fmt(f),
+            Self::TOTAL_MEM => "TOTAL_MEM".fmt(f),
+            Self::CMDLINE => "CMDLINE".fmt(f),
+            Self::EVENT_DESC => "EVENT_DESC".fmt(f),
+            Self::CPU_TOPOLOGY => "CPU_TOPOLOGY".fmt(f),
+            Self::NUMA_TOPOLOGY => "NUMA_TOPOLOGY".fmt(f),
+            Self::BRANCH_STACK => "BRANCH_STACK".fmt(f),
+            Self::PMU_MAPPINGS => "PMU_MAPPINGS".fmt(f),
+            Self::GROUP_DESC => "GROUP_DESC".fmt(f),
+            Self::AUXTRACE => "AUXTRACE".fmt(f),
+            Self::STAT => "STAT".fmt(f),
+            Self::CACHE => "CACHE".fmt(f),
+            Self::SAMPLE_TIME => "SAMPLE_TIME".fmt(f),
+            Self::SAMPLE_TOPOLOGY => "SAMPLE_TOPOLOGY".fmt(f),
+            Self::CLOCKID => "CLOCKID".fmt(f),
+            Self::DIR_FORMAT => "DIR_FORMAT".fmt(f),
+            Self::BPF_PROG_INFO => "BPF_PROG_INFO".fmt(f),
+            Self::BPF_BTF => "BPF_BTF".fmt(f),
+            Self::COMPRESSED => "COMPRESSED".fmt(f),
+            Self::CPU_PMU_CAPS => "CPU_PMU_CAPS".fmt(f),
+            Self::CLOCK_DATA => "CLOCK_DATA".fmt(f),
+            Self::HYBRID_TOPOLOGY => "HYBRID_TOPOLOGY".fmt(f),
+            Self::HYBRID_CPU_PMU_CAPS => "HYBRID_CPU_PMU_CAPS".fmt(f),
+            Self::SIMPLEPERF_META_INFO => "SIMPLEPERF_META_INFO".fmt(f),
+            Self::SIMPLEPERF_DEBUG_UNWIND => "SIMPLEPERF_DEBUG_UNWIND".fmt(f),
+            Self::SIMPLEPERF_DEBUG_UNWIND_FILE => "SIMPLEPERF_DEBUG_UNWIND_FILE".fmt(f),
+            Self::SIMPLEPERF_FILE2 => "SIMPLEPERF_FILE2".fmt(f),
+            _ => f.write_str(&format!("Unknown Feature {}", &self.0)),
         }
     }
 }
@@ -197,20 +156,19 @@ impl FeatureSet {
     /// Returns an iterator over all features in this set, from low to high.
     pub fn iter(&self) -> FeatureSetIter {
         FeatureSetIter {
-            current_feature: 0,
+            current_feature: Feature(0),
             set: *self,
         }
     }
 
     /// Checks if the feature is contained in this set.
     #[inline]
-    pub fn has_feature(&self, feature: impl Into<u32>) -> bool {
-        let feature: u32 = feature.into();
-        if feature >= 256 {
+    pub fn has_feature(&self, feature: Feature) -> bool {
+        if feature.0 >= 256 {
             return false;
         }
-        let features_chunk_index = (feature / 64) as usize;
-        let feature_bit = feature % 64;
+        let features_chunk_index = (feature.0 / 64) as usize;
+        let feature_bit = feature.0 % 64;
         let features_chunk = self.0[features_chunk_index];
         (features_chunk & (1 << feature_bit)) != 0
     }
@@ -219,12 +177,8 @@ impl FeatureSet {
 impl fmt::Debug for FeatureSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut set = f.debug_set();
-        for i in self.iter() {
-            if let Some(feature) = Feature::from_int(i) {
-                set.entry(&feature);
-            } else {
-                set.entry(&format_args!("Unknown({})", i));
-            }
+        for feature in self.iter() {
+            set.entry(&feature);
         }
         set.finish()
     }
@@ -236,17 +190,17 @@ impl fmt::Debug for FeatureSet {
 /// The iteration order is the order in which the feature sections are stored
 /// in a perf.data file.
 pub struct FeatureSetIter {
-    current_feature: u32,
+    current_feature: Feature,
     set: FeatureSet,
 }
 
 impl Iterator for FeatureSetIter {
-    type Item = u32;
+    type Item = Feature;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.current_feature < 256 {
+        while self.current_feature.0 < 256 {
             let feature = self.current_feature;
-            self.current_feature += 1;
+            self.current_feature.0 += 1;
 
             if self.set.has_feature(feature) {
                 return Some(feature);

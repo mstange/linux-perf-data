@@ -103,11 +103,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
         let mut feature_sections_info = Vec::new();
         for feature in header.features.iter() {
             let section = PerfFileSection::parse::<_, T>(&mut cursor)?;
-            if let Some(feature) = Feature::from_int(feature) {
-                feature_sections_info.push((feature, section));
-            } else {
-                eprintln!("Unrecognized feature {}", feature);
-            }
+            feature_sections_info.push((feature, section));
         }
 
         let mut feature_sections = LinearMap::new();
@@ -120,22 +116,22 @@ impl<C: Read + Seek> PerfFileReader<C> {
             feature_sections.insert(feature, data);
         }
 
-        let attributes = if let Some(event_desc_section) = feature_sections.get(&Feature::EventDesc)
-        {
-            AttributeDescription::parse_event_desc_section::<_, T>(&event_desc_section[..])?
-        } else if header.event_types_section.size != 0 {
-            AttributeDescription::parse_event_types_section::<_, T>(
-                &mut cursor,
-                &header.event_types_section,
-                header.attr_size,
-            )?
-        } else {
-            AttributeDescription::parse_attr_section::<_, T>(
-                &mut cursor,
-                &header.attr_section,
-                header.attr_size,
-            )?
-        };
+        let attributes =
+            if let Some(event_desc_section) = feature_sections.get(&Feature::EVENT_DESC) {
+                AttributeDescription::parse_event_desc_section::<_, T>(&event_desc_section[..])?
+            } else if header.event_types_section.size != 0 {
+                AttributeDescription::parse_event_types_section::<_, T>(
+                    &mut cursor,
+                    &header.event_types_section,
+                    header.attr_size,
+                )?
+            } else {
+                AttributeDescription::parse_attr_section::<_, T>(
+                    &mut cursor,
+                    &header.attr_section,
+                    header.attr_size,
+                )?
+            };
 
         let mut event_id_to_attr_index = HashMap::new();
         for (attr_index, AttributeDescription { event_ids, .. }) in attributes.iter().enumerate() {
@@ -260,7 +256,7 @@ impl<R: Read> PerfFileReader<R> {
     /// This method is a bit lossy. We discard the pid, because it seems to be always -1 in
     /// the files I've tested. We also discard any entries for which we fail to create a `DsoKey`.
     pub fn build_ids(&self) -> Result<HashMap<DsoKey, DsoInfo>, Error> {
-        let section_data = match self.feature_section_data(Feature::BuildId) {
+        let section_data = match self.feature_section_data(Feature::BUILD_ID) {
             Some(section) => section,
             None => return Ok(HashMap::new()),
         };
@@ -289,7 +285,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The timestamp of the first and the last sample in this file.
     pub fn sample_time_range(&self) -> Result<Option<SampleTimeRange>, Error> {
-        let section_data = match self.feature_section_data(Feature::SampleTime) {
+        let section_data = match self.feature_section_data(Feature::SAMPLE_TIME) {
             Some(section) => section,
             None => return Ok(None),
         };
@@ -310,28 +306,28 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The hostname where the data was collected (`uname -n`).
     pub fn hostname(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(Feature::Hostname)
+        self.feature_string(Feature::HOSTNAME)
     }
 
     /// The OS release where the data was collected (`uname -r`).
     pub fn os_release(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(Feature::OsRelease)
+        self.feature_string(Feature::OSRELEASE)
     }
 
     /// The perf user tool version where the data was collected. This is the same
     /// as the version of the Linux source tree the perf tool was built from.
     pub fn perf_version(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(Feature::Version)
+        self.feature_string(Feature::VERSION)
     }
 
     /// The CPU architecture (`uname -m`).
     pub fn arch(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(Feature::Arch)
+        self.feature_string(Feature::ARCH)
     }
 
     /// A structure defining the number of CPUs.
     pub fn nr_cpus(&self) -> Result<Option<NrCpus>, Error> {
-        self.feature_section_data(Feature::NrCpus)
+        self.feature_section_data(Feature::NRCPUS)
             .map(|section| {
                 Ok(match self.endian {
                     Endianness::LittleEndian => NrCpus::parse::<_, LittleEndian>(section),
@@ -344,23 +340,23 @@ impl<R: Read> PerfFileReader<R> {
     /// The description of the CPU. On x86 this is the model name
     /// from `/proc/cpuinfo`.
     pub fn cpu_desc(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(Feature::CpuDesc)
+        self.feature_string(Feature::CPUDESC)
     }
 
     /// The exact CPU type. On x86 this is `vendor,family,model,stepping`.
     /// For example: `GenuineIntel,6,69,1`
     pub fn cpu_id(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(Feature::CpuId)
+        self.feature_string(Feature::CPUID)
     }
 
     /// If true, the data section contains data recorded from `perf stat record`.
     pub fn is_stats(&self) -> bool {
-        self.features.has_feature(Feature::Stat)
+        self.features.has_feature(Feature::STAT)
     }
 
     /// The perf arg-vector used to collect the data.
     pub fn cmdline(&self) -> Result<Option<Vec<&str>>, Error> {
-        match self.feature_section_data(Feature::Cmdline) {
+        match self.feature_section_data(Feature::CMDLINE) {
             Some(section) => Ok(Some(self.read_string_list(section)?.0)),
             None => Ok(None),
         }
@@ -368,7 +364,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The total memory in kilobytes. (MemTotal from /proc/meminfo)
     pub fn total_mem(&self) -> Result<Option<u64>, Error> {
-        let data = match self.feature_section_data(Feature::TotalMem) {
+        let data = match self.feature_section_data(Feature::TOTAL_MEM) {
             Some(data) => data,
             None => return Ok(None),
         };
