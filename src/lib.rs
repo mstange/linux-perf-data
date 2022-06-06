@@ -188,23 +188,29 @@ impl<C: Read + Seek> PerfFileReader<C> {
 }
 
 impl<R: Read> PerfFileReader<R> {
-    pub fn endian(&self) -> Endianness {
-        self.endian
-    }
-
-    /// The attributes which were requested for the perf event.
-    pub fn attributes(&self) -> &[AttributeDescription] {
+    /// The attributes which were requested for each perf event, along with the IDs.
+    pub fn event_attributes(&self) -> &[AttributeDescription] {
         &self.attributes
     }
 
-    /// The set of feature flags used in this perf file.
-    pub fn feature_flags(&self) -> FlagFeatureSet {
-        self.feature_flags
-    }
-
-    /// The raw data of a feature section.
-    pub fn feature_section(&self, feature: FlagFeature) -> Option<&[u8]> {
-        self.feature_sections.get(&feature).map(Deref::deref)
+    /// Iterates the records in this file. The records are emitted in the correct order, sorted by time.
+    ///
+    /// Each iterated element is a pair of (attribute index, raw record). The attribute index
+    /// indexes into the array returned by [`PerfFileReader::event_attributes`].
+    /// Some records don't belong to any particular perf event, for example
+    /// any synthetic record types emitted by the perf user space tool; for these records the index will
+    /// be zero.
+    ///
+    /// `next_record` does some internal buffering so that the sort order can be guaranteed. This buffering
+    /// takes advantage of `FINISHED_ROUND` records so that we don't buffer more records than necessary.
+    pub fn next_record(&mut self) -> Result<Option<(usize, RawRecord)>, Error> {
+        if !self.sorter.has_more() {
+            self.read_next_round()?;
+        }
+        if let Some(pending_record) = self.sorter.get_next() {
+            return Ok(Some(self.convert_pending_record(pending_record)));
+        }
+        Ok(None)
     }
 
     /// Returns a map of build ID entries. `perf record` creates these records for any DSOs
@@ -237,7 +243,7 @@ impl<R: Read> PerfFileReader<R> {
     /// This method is a bit lossy. We discard the pid, because it seems to be always -1 in
     /// the files I've tested. We also discard any entries for which we fail to create a `DsoKey`.
     pub fn build_ids(&self) -> Result<HashMap<DsoKey, DsoBuildId>, Error> {
-        let section_data = match self.feature_section(FlagFeature::BuildId) {
+        let section_data = match self.feature_section_data(FlagFeature::BuildId) {
             Some(section) => section,
             None => return Ok(HashMap::new()),
         };
@@ -266,7 +272,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The timestamp of the first and the last sample in this file.
     pub fn sample_time_range(&self) -> Result<Option<SampleTimeRange>, Error> {
-        let section_data = match self.feature_section(FlagFeature::SampleTime) {
+        let section_data = match self.feature_section_data(FlagFeature::SampleTime) {
             Some(section) => section,
             None => return Ok(None),
         };
@@ -279,7 +285,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// Only call this for features whose section is just a perf_header_string.
     fn feature_string(&self, feature: FlagFeature) -> Result<Option<&str>, Error> {
-        match self.feature_section(feature) {
+        match self.feature_section_data(feature) {
             Some(section) => Ok(Some(self.read_string(section)?.0)),
             None => Ok(None),
         }
@@ -308,7 +314,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// A structure defining the number of CPUs.
     pub fn nr_cpus(&self) -> Result<Option<NrCpus>, Error> {
-        self.feature_section(FlagFeature::NrCpus)
+        self.feature_section_data(FlagFeature::NrCpus)
             .map(|section| {
                 Ok(match self.endian {
                     Endianness::LittleEndian => NrCpus::parse::<_, LittleEndian>(section),
@@ -337,7 +343,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The perf arg-vector used to collect the data.
     pub fn cmdline(&self) -> Result<Option<Vec<&str>>, Error> {
-        match self.feature_section(FlagFeature::Cmdline) {
+        match self.feature_section_data(FlagFeature::Cmdline) {
             Some(section) => Ok(Some(self.read_string_list(section)?.0)),
             None => Ok(None),
         }
@@ -345,7 +351,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The total memory in kilobytes. (MemTotal from /proc/meminfo)
     pub fn total_mem(&self) -> Result<Option<u64>, Error> {
-        let data = match self.feature_section(FlagFeature::TotalMem) {
+        let data = match self.feature_section_data(FlagFeature::TotalMem) {
             Some(data) => data,
             None => return Ok(None),
         };
@@ -359,6 +365,21 @@ impl<R: Read> PerfFileReader<R> {
             Endianness::BigEndian => u64::from_be_bytes(data),
         };
         Ok(Some(mem))
+    }
+
+    /// The set of feature flags used in this perf file.
+    pub fn feature_flags(&self) -> FlagFeatureSet {
+        self.feature_flags
+    }
+
+    /// The raw data of a feature section.
+    pub fn feature_section_data(&self, feature: FlagFeature) -> Option<&[u8]> {
+        self.feature_sections.get(&feature).map(Deref::deref)
+    }
+
+    /// The file endian.
+    pub fn endian(&self) -> Endianness {
+        self.endian
     }
 
     fn read_string<'s>(&self, s: &'s [u8]) -> Result<(&'s str, &'s [u8]), Error> {
@@ -400,20 +421,6 @@ impl<R: Read> PerfFileReader<R> {
         }
 
         Ok((vec, rest))
-    }
-
-    /// Emits records in the correct order (sorted by time).
-    ///
-    /// It buffers records until it sees a FINISHED_ROUND record; then it sorts the
-    /// buffered records and emits them one by one.
-    pub fn next_record(&mut self) -> Result<Option<(usize, RawRecord)>, Error> {
-        if !self.sorter.has_more() {
-            self.read_next_round()?;
-        }
-        if let Some(pending_record) = self.sorter.get_next() {
-            return Ok(Some(self.convert_pending_record(pending_record)));
-        }
-        Ok(None)
     }
 
     /// Reads events into self.sorter until a FINISHED_ROUND record is found
