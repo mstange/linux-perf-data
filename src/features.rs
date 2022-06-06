@@ -127,7 +127,7 @@ impl fmt::Debug for Feature {
             Self::SIMPLEPERF_DEBUG_UNWIND => "SIMPLEPERF_DEBUG_UNWIND".fmt(f),
             Self::SIMPLEPERF_DEBUG_UNWIND_FILE => "SIMPLEPERF_DEBUG_UNWIND_FILE".fmt(f),
             Self::SIMPLEPERF_FILE2 => "SIMPLEPERF_FILE2".fmt(f),
-            _ => f.write_str(&format!("Unknown Feature {}", &self.0)),
+            _ => f.write_fmt(format_args!("Unknown Feature {}", &self.0)),
         }
     }
 }
