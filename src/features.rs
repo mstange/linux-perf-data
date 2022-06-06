@@ -133,10 +133,10 @@ impl fmt::Debug for Feature {
 }
 
 /// The set of features used in the perf file. The perf file contains one
-/// feature section for each feature. This set is provided in the perf
-/// file header.
+/// feature section for each feature.
 ///
-/// The set has room for 4 * 64 = 256 feature bits.
+/// This set is provided in the perf file header.
+/// It has room for 4 * 64 = 256 feature bits.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FeatureSet(pub [u64; 4]);
 
