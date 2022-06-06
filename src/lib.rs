@@ -34,7 +34,7 @@ use linux_perf_event_reader::{
 use perf_file::{PerfFileSection, PerfHeader};
 use sorter::Sorter;
 
-/// Parser for the perf.data file format.
+/// A parser for the perf.data file format.
 ///
 /// # Example
 ///
@@ -227,8 +227,8 @@ impl<R: Read> PerfFileReader<R> {
     }
 
     /// Returns a map of build ID entries. `perf record` creates these records for any DSOs
-    /// which it thinks have been "hit" in the profile. They supplement Mmap events
-    /// the perf event stream; those usually don't come with build IDs.
+    /// which it thinks have been "hit" in the profile. They supplement Mmap records, which
+    /// usually don't come with build IDs.
     ///
     /// This method returns a HashMap so that you can easily look up the right build ID from
     /// the DsoKey in an Mmap event. For some DSOs, the path in the raw Mmap event can be
