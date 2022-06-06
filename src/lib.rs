@@ -1,15 +1,15 @@
 mod build_id_event;
 mod dso_key;
 mod error;
-mod flag_feature;
-mod flag_sections;
+mod feature_sections;
+mod features;
 mod perf_file;
 mod sorter;
 
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
-pub use flag_feature::{FlagFeature, FlagFeatureSet};
-pub use flag_sections::{AttributeDescription, NrCpus, SampleTimeRange};
+pub use feature_sections::{AttributeDescription, NrCpus, SampleTimeRange};
+pub use features::{Feature, FeatureSet};
 
 /// This is a re-export of the linux-perf-event-reader crate. We use its types
 /// in our public API.
@@ -60,8 +60,8 @@ use sorter::Sorter;
 pub struct PerfFileReader<R: Read> {
     reader: R,
     endian: Endianness,
-    feature_flags: FlagFeatureSet,
-    feature_sections: LinearMap<FlagFeature, Vec<u8>>,
+    features: FeatureSet,
+    feature_sections: LinearMap<Feature, Vec<u8>>,
     read_offset: u64,
     record_data_len: u64,
     current_event_body: Vec<u8>,
@@ -97,16 +97,16 @@ impl<C: Read + Seek> PerfFileReader<C> {
     where
         T: ByteOrder,
     {
-        // Read the section information for each flag, starting just after the data section.
+        // Read the section information for each feature, starting just after the data section.
         let feature_pos = header.data_section.offset + header.data_section.size;
         cursor.seek(SeekFrom::Start(feature_pos))?;
         let mut feature_sections_info = Vec::new();
-        for flag in header.flags.iter() {
+        for feature in header.features.iter() {
             let section = PerfFileSection::parse::<_, T>(&mut cursor)?;
-            if let Some(feature) = FlagFeature::from_int(flag) {
+            if let Some(feature) = Feature::from_int(feature) {
                 feature_sections_info.push((feature, section));
             } else {
-                eprintln!("Unrecognized flag feature {}", flag);
+                eprintln!("Unrecognized feature {}", feature);
             }
         }
 
@@ -120,22 +120,22 @@ impl<C: Read + Seek> PerfFileReader<C> {
             feature_sections.insert(feature, data);
         }
 
-        let attributes =
-            if let Some(event_desc_section) = feature_sections.get(&FlagFeature::EventDesc) {
-                AttributeDescription::parse_event_desc_section::<_, T>(&event_desc_section[..])?
-            } else if header.event_types_section.size != 0 {
-                AttributeDescription::parse_event_types_section::<_, T>(
-                    &mut cursor,
-                    &header.event_types_section,
-                    header.attr_size,
-                )?
-            } else {
-                AttributeDescription::parse_attr_section::<_, T>(
-                    &mut cursor,
-                    &header.attr_section,
-                    header.attr_size,
-                )?
-            };
+        let attributes = if let Some(event_desc_section) = feature_sections.get(&Feature::EventDesc)
+        {
+            AttributeDescription::parse_event_desc_section::<_, T>(&event_desc_section[..])?
+        } else if header.event_types_section.size != 0 {
+            AttributeDescription::parse_event_types_section::<_, T>(
+                &mut cursor,
+                &header.event_types_section,
+                header.attr_size,
+            )?
+        } else {
+            AttributeDescription::parse_attr_section::<_, T>(
+                &mut cursor,
+                &header.attr_section,
+                header.attr_size,
+            )?
+        };
 
         let mut event_id_to_attr_index = HashMap::new();
         for (attr_index, AttributeDescription { event_ids, .. }) in attributes.iter().enumerate() {
@@ -192,7 +192,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
             attributes,
             parse_infos,
             id_parse_infos,
-            feature_flags: header.flags,
+            features: header.features,
             feature_sections,
             read_offset: 0,
             record_data_len: header.data_section.size,
@@ -260,7 +260,7 @@ impl<R: Read> PerfFileReader<R> {
     /// This method is a bit lossy. We discard the pid, because it seems to be always -1 in
     /// the files I've tested. We also discard any entries for which we fail to create a `DsoKey`.
     pub fn build_ids(&self) -> Result<HashMap<DsoKey, DsoInfo>, Error> {
-        let section_data = match self.feature_section_data(FlagFeature::BuildId) {
+        let section_data = match self.feature_section_data(Feature::BuildId) {
             Some(section) => section,
             None => return Ok(HashMap::new()),
         };
@@ -289,7 +289,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The timestamp of the first and the last sample in this file.
     pub fn sample_time_range(&self) -> Result<Option<SampleTimeRange>, Error> {
-        let section_data = match self.feature_section_data(FlagFeature::SampleTime) {
+        let section_data = match self.feature_section_data(Feature::SampleTime) {
             Some(section) => section,
             None => return Ok(None),
         };
@@ -301,7 +301,7 @@ impl<R: Read> PerfFileReader<R> {
     }
 
     /// Only call this for features whose section is just a perf_header_string.
-    fn feature_string(&self, feature: FlagFeature) -> Result<Option<&str>, Error> {
+    fn feature_string(&self, feature: Feature) -> Result<Option<&str>, Error> {
         match self.feature_section_data(feature) {
             Some(section) => Ok(Some(self.read_string(section)?.0)),
             None => Ok(None),
@@ -310,28 +310,28 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The hostname where the data was collected (`uname -n`).
     pub fn hostname(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(FlagFeature::Hostname)
+        self.feature_string(Feature::Hostname)
     }
 
     /// The OS release where the data was collected (`uname -r`).
     pub fn os_release(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(FlagFeature::OsRelease)
+        self.feature_string(Feature::OsRelease)
     }
 
     /// The perf user tool version where the data was collected. This is the same
     /// as the version of the Linux source tree the perf tool was built from.
     pub fn perf_version(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(FlagFeature::Version)
+        self.feature_string(Feature::Version)
     }
 
     /// The CPU architecture (`uname -m`).
     pub fn arch(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(FlagFeature::Arch)
+        self.feature_string(Feature::Arch)
     }
 
     /// A structure defining the number of CPUs.
     pub fn nr_cpus(&self) -> Result<Option<NrCpus>, Error> {
-        self.feature_section_data(FlagFeature::NrCpus)
+        self.feature_section_data(Feature::NrCpus)
             .map(|section| {
                 Ok(match self.endian {
                     Endianness::LittleEndian => NrCpus::parse::<_, LittleEndian>(section),
@@ -344,23 +344,23 @@ impl<R: Read> PerfFileReader<R> {
     /// The description of the CPU. On x86 this is the model name
     /// from `/proc/cpuinfo`.
     pub fn cpu_desc(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(FlagFeature::CpuDesc)
+        self.feature_string(Feature::CpuDesc)
     }
 
     /// The exact CPU type. On x86 this is `vendor,family,model,stepping`.
     /// For example: `GenuineIntel,6,69,1`
     pub fn cpu_id(&self) -> Result<Option<&str>, Error> {
-        self.feature_string(FlagFeature::CpuId)
+        self.feature_string(Feature::CpuId)
     }
 
     /// If true, the data section contains data recorded from `perf stat record`.
     pub fn is_stats(&self) -> bool {
-        self.feature_flags.has_flag(FlagFeature::Stat)
+        self.features.has_feature(Feature::Stat)
     }
 
     /// The perf arg-vector used to collect the data.
     pub fn cmdline(&self) -> Result<Option<Vec<&str>>, Error> {
-        match self.feature_section_data(FlagFeature::Cmdline) {
+        match self.feature_section_data(Feature::Cmdline) {
             Some(section) => Ok(Some(self.read_string_list(section)?.0)),
             None => Ok(None),
         }
@@ -368,7 +368,7 @@ impl<R: Read> PerfFileReader<R> {
 
     /// The total memory in kilobytes. (MemTotal from /proc/meminfo)
     pub fn total_mem(&self) -> Result<Option<u64>, Error> {
-        let data = match self.feature_section_data(FlagFeature::TotalMem) {
+        let data = match self.feature_section_data(Feature::TotalMem) {
             Some(data) => data,
             None => return Ok(None),
         };
@@ -384,13 +384,13 @@ impl<R: Read> PerfFileReader<R> {
         Ok(Some(mem))
     }
 
-    /// The set of feature flags used in this perf file.
-    pub fn feature_flags(&self) -> FlagFeatureSet {
-        self.feature_flags
+    /// The set of features used in this perf file.
+    pub fn features(&self) -> FeatureSet {
+        self.features
     }
 
     /// The raw data of a feature section.
-    pub fn feature_section_data(&self, feature: FlagFeature) -> Option<&[u8]> {
+    pub fn feature_section_data(&self, feature: Feature) -> Option<&[u8]> {
         self.feature_sections.get(&feature).map(Deref::deref)
     }
 

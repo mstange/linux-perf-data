@@ -2,7 +2,7 @@ use std::io::Read;
 
 use byteorder::{ByteOrder, ReadBytesExt};
 
-use crate::flag_feature::FlagFeatureSet;
+use crate::features::FeatureSet;
 
 /// `perf_header`
 ///
@@ -22,7 +22,7 @@ pub struct PerfHeader {
     pub data_section: PerfFileSection,
     pub event_types_section: PerfFileSection,
     /// Feature flags
-    pub flags: FlagFeatureSet,
+    pub features: FeatureSet,
 }
 
 impl PerfHeader {
@@ -46,7 +46,7 @@ impl PerfHeader {
         let attr_section = PerfFileSection::parse::<_, T>(&mut reader)?;
         let data_section = PerfFileSection::parse::<_, T>(&mut reader)?;
         let event_types_section = PerfFileSection::parse::<_, T>(&mut reader)?;
-        let flags = FlagFeatureSet([
+        let features = FeatureSet([
             reader.read_u64::<T>()?,
             reader.read_u64::<T>()?,
             reader.read_u64::<T>()?,
@@ -59,7 +59,7 @@ impl PerfHeader {
             attr_section,
             data_section,
             event_types_section,
-            flags,
+            features,
         })
     }
 }

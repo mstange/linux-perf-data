@@ -41,8 +41,15 @@ pub const HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE: u32 = 130;
 /// simpleperf `FEAT_FILE2`
 pub const HEADER_SIMPLEPERF_FILE2: u32 = 131;
 
+/// A piece of optional data stored in a perf.data file. Its data is contained in a
+/// "feature section" at the end of the file.
+///
+/// For each used feature, a bit is set in the feature flags in the file header.
+/// The feature sections are stored just after the file's data section; there's
+/// one section for each enabled feature, ordered from low feature bit to high
+/// feature bit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlagFeature {
+pub enum Feature {
     TracingData,
     BuildId,
     Hostname,
@@ -80,7 +87,7 @@ pub enum FlagFeature {
     SimpleperfFile2,
 }
 
-impl FlagFeature {
+impl Feature {
     pub fn from_int(i: u32) -> Option<Self> {
         let feature = match i {
             HEADER_TRACING_DATA => Self::TracingData,
@@ -124,58 +131,58 @@ impl FlagFeature {
     }
 }
 
-impl From<FlagFeature> for u32 {
-    fn from(flag: FlagFeature) -> Self {
-        match flag {
-            FlagFeature::TracingData => HEADER_TRACING_DATA,
-            FlagFeature::BuildId => HEADER_BUILD_ID,
-            FlagFeature::Hostname => HEADER_HOSTNAME,
-            FlagFeature::OsRelease => HEADER_OSRELEASE,
-            FlagFeature::Version => HEADER_VERSION,
-            FlagFeature::Arch => HEADER_ARCH,
-            FlagFeature::NrCpus => HEADER_NRCPUS,
-            FlagFeature::CpuDesc => HEADER_CPUDESC,
-            FlagFeature::CpuId => HEADER_CPUID,
-            FlagFeature::TotalMem => HEADER_TOTAL_MEM,
-            FlagFeature::Cmdline => HEADER_CMDLINE,
-            FlagFeature::EventDesc => HEADER_EVENT_DESC,
-            FlagFeature::CpuTopology => HEADER_CPU_TOPOLOGY,
-            FlagFeature::NumaTopology => HEADER_NUMA_TOPOLOGY,
-            FlagFeature::BranchStack => HEADER_BRANCH_STACK,
-            FlagFeature::PmuMappings => HEADER_PMU_MAPPINGS,
-            FlagFeature::GroupDesc => HEADER_GROUP_DESC,
-            FlagFeature::Auxtrace => HEADER_AUXTRACE,
-            FlagFeature::Stat => HEADER_STAT,
-            FlagFeature::Cache => HEADER_CACHE,
-            FlagFeature::SampleTime => HEADER_SAMPLE_TIME,
-            FlagFeature::SampleTopology => HEADER_SAMPLE_TOPOLOGY,
-            FlagFeature::ClockId => HEADER_CLOCKID,
-            FlagFeature::DirFormat => HEADER_DIR_FORMAT,
-            FlagFeature::BpfProgInfo => HEADER_BPF_PROG_INFO,
-            FlagFeature::BpfBtf => HEADER_BPF_BTF,
-            FlagFeature::Compressed => HEADER_COMPRESSED,
-            FlagFeature::CpuPmuCaps => HEADER_CPU_PMU_CAPS,
-            FlagFeature::ClockData => HEADER_CLOCK_DATA,
-            FlagFeature::HybridTopology => HEADER_HYBRID_TOPOLOGY,
-            FlagFeature::HybridCpuPmuCaps => HEADER_HYBRID_CPU_PMU_CAPS,
-            FlagFeature::SimpleperfMetaInfo => HEADER_SIMPLEPERF_META_INFO,
-            FlagFeature::SimpleperfDebugUnwind => HEADER_SIMPLEPERF_DEBUG_UNWIND,
-            FlagFeature::SimpleperfDebugUnwindFile => HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE,
-            FlagFeature::SimpleperfFile2 => HEADER_SIMPLEPERF_FILE2,
+impl From<Feature> for u32 {
+    fn from(feature: Feature) -> Self {
+        match feature {
+            Feature::TracingData => HEADER_TRACING_DATA,
+            Feature::BuildId => HEADER_BUILD_ID,
+            Feature::Hostname => HEADER_HOSTNAME,
+            Feature::OsRelease => HEADER_OSRELEASE,
+            Feature::Version => HEADER_VERSION,
+            Feature::Arch => HEADER_ARCH,
+            Feature::NrCpus => HEADER_NRCPUS,
+            Feature::CpuDesc => HEADER_CPUDESC,
+            Feature::CpuId => HEADER_CPUID,
+            Feature::TotalMem => HEADER_TOTAL_MEM,
+            Feature::Cmdline => HEADER_CMDLINE,
+            Feature::EventDesc => HEADER_EVENT_DESC,
+            Feature::CpuTopology => HEADER_CPU_TOPOLOGY,
+            Feature::NumaTopology => HEADER_NUMA_TOPOLOGY,
+            Feature::BranchStack => HEADER_BRANCH_STACK,
+            Feature::PmuMappings => HEADER_PMU_MAPPINGS,
+            Feature::GroupDesc => HEADER_GROUP_DESC,
+            Feature::Auxtrace => HEADER_AUXTRACE,
+            Feature::Stat => HEADER_STAT,
+            Feature::Cache => HEADER_CACHE,
+            Feature::SampleTime => HEADER_SAMPLE_TIME,
+            Feature::SampleTopology => HEADER_SAMPLE_TOPOLOGY,
+            Feature::ClockId => HEADER_CLOCKID,
+            Feature::DirFormat => HEADER_DIR_FORMAT,
+            Feature::BpfProgInfo => HEADER_BPF_PROG_INFO,
+            Feature::BpfBtf => HEADER_BPF_BTF,
+            Feature::Compressed => HEADER_COMPRESSED,
+            Feature::CpuPmuCaps => HEADER_CPU_PMU_CAPS,
+            Feature::ClockData => HEADER_CLOCK_DATA,
+            Feature::HybridTopology => HEADER_HYBRID_TOPOLOGY,
+            Feature::HybridCpuPmuCaps => HEADER_HYBRID_CPU_PMU_CAPS,
+            Feature::SimpleperfMetaInfo => HEADER_SIMPLEPERF_META_INFO,
+            Feature::SimpleperfDebugUnwind => HEADER_SIMPLEPERF_DEBUG_UNWIND,
+            Feature::SimpleperfDebugUnwindFile => HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE,
+            Feature::SimpleperfFile2 => HEADER_SIMPLEPERF_FILE2,
         }
     }
 }
 
-/// The set of feature flags used in the perf file. The perf file contains has one
-/// "feature flag section" for each of the flags. This set is provided in the perf
+/// The set of features used in the perf file. The perf file contains one
+/// feature section for each feature. This set is provided in the perf
 /// file header.
 ///
-/// The set has room for 4 * 64 = 256 header flag bits.
+/// The set has room for 4 * 64 = 256 feature bits.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FlagFeatureSet(pub [u64; 4]);
+pub struct FeatureSet(pub [u64; 4]);
 
-impl FlagFeatureSet {
-    /// The number of flags in this set.
+impl FeatureSet {
+    /// The number of features in this set.
     pub fn len(&self) -> usize {
         let b = &self.0;
         let len = b[0].count_ones() + b[1].count_ones() + b[2].count_ones() + b[3].count_ones();
@@ -187,33 +194,33 @@ impl FlagFeatureSet {
         self.0 == [0, 0, 0, 0]
     }
 
-    /// Emits all feature flags in this set, from low to high.
-    pub fn iter(&self) -> FlagFeatureSetIterAll {
-        FlagFeatureSetIterAll {
-            current_flag: 0,
+    /// Emits all features in this set, from low to high.
+    pub fn iter(&self) -> FeatureSetIterAll {
+        FeatureSetIterAll {
+            current_feature: 0,
             set: *self,
         }
     }
 
-    /// Checks if the flag is contained in this set.
+    /// Checks if the feature is contained in this set.
     #[inline]
-    pub fn has_flag(&self, flag: impl Into<u32>) -> bool {
-        let flag: u32 = flag.into();
-        if flag >= 256 {
+    pub fn has_feature(&self, feature: impl Into<u32>) -> bool {
+        let feature: u32 = feature.into();
+        if feature >= 256 {
             return false;
         }
-        let flags_chunk_index = (flag / 64) as usize;
-        let flag_bit = flag % 64;
-        let flags_chunk = self.0[flags_chunk_index];
-        (flags_chunk & (1 << flag_bit)) != 0
+        let features_chunk_index = (feature / 64) as usize;
+        let feature_bit = feature % 64;
+        let features_chunk = self.0[features_chunk_index];
+        (features_chunk & (1 << feature_bit)) != 0
     }
 }
 
-impl fmt::Debug for FlagFeatureSet {
+impl fmt::Debug for FeatureSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut set = f.debug_set();
         for i in self.iter() {
-            if let Some(feature) = FlagFeature::from_int(i) {
+            if let Some(feature) = Feature::from_int(i) {
                 set.entry(&feature);
             } else {
                 set.entry(&format_args!("Unknown({})", i));
@@ -223,21 +230,21 @@ impl fmt::Debug for FlagFeatureSet {
     }
 }
 
-pub struct FlagFeatureSetIterAll {
-    current_flag: u32,
-    set: FlagFeatureSet,
+pub struct FeatureSetIterAll {
+    current_feature: u32,
+    set: FeatureSet,
 }
 
-impl Iterator for FlagFeatureSetIterAll {
+impl Iterator for FeatureSetIterAll {
     type Item = u32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.current_flag < 256 {
-            let flag = self.current_flag;
-            self.current_flag += 1;
+        while self.current_feature < 256 {
+            let feature = self.current_feature;
+            self.current_feature += 1;
 
-            if self.set.has_flag(flag) {
-                return Some(flag);
+            if self.set.has_feature(feature) {
+                return Some(feature);
             }
         }
         None

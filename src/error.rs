@@ -59,8 +59,8 @@ pub enum ReadError {
     #[error("Could not read PerfHeader")]
     PerfHeader,
 
-    #[error("Could not read PerFlagSection")]
-    PerFlagSection,
+    #[error("Could not read FeatureSection")]
+    FeatureSection,
 
     #[error("Could not read BuildIdSection")]
     BuildIdSection,
