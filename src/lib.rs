@@ -1,15 +1,20 @@
 mod build_id_event;
+mod constants;
 mod dso_key;
 mod error;
 mod feature_sections;
 mod features;
 mod perf_file;
+mod record;
 mod sorter;
+mod thread_map;
 
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
 pub use feature_sections::{AttributeDescription, NrCpus, SampleTimeRange};
 pub use features::{Feature, FeatureSet, FeatureSetIter};
+pub use record::{PerfFileRecord, RawUserRecord, UserRecord, UserRecordType};
+pub use thread_map::ThreadMap;
 
 /// This is a re-export of the linux-perf-event-reader crate. We use its types
 /// in our public API.
@@ -25,7 +30,7 @@ use build_id_event::BuildIdEvent;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use linear_map::LinearMap;
 use linux_perf_event_reader::records::{
-    get_record_id, get_record_identifier, get_record_timestamp, RawRecord, RecordIdParseInfo,
+    get_record_id, get_record_identifier, get_record_timestamp, RawEventRecord, RecordIdParseInfo,
     RecordParseInfo,
 };
 use linux_perf_event_reader::{
@@ -39,7 +44,7 @@ use sorter::Sorter;
 /// # Example
 ///
 /// ```
-/// use linux_perf_data::{AttributeDescription, PerfFileReader};
+/// use linux_perf_data::{AttributeDescription, PerfFileReader, PerfFileRecord};
 ///
 /// # fn wrapper() -> Result<(), linux_perf_data::Error> {
 /// let file = std::fs::File::open("perf.data")?;
@@ -49,10 +54,19 @@ use sorter::Sorter;
 ///     perf_file.event_attributes().iter().filter_map(AttributeDescription::name).collect();
 /// println!("perf events: {}", event_names.join(", "));
 ///
-/// while let Some((_attr_index, raw_record)) = perf_file.next_record()? {
-///     let record_type = raw_record.record_type;
-///     let parsed_record = raw_record.parse()?;
-///     println!("{:?}: {:?}", record_type, parsed_record);
+/// while let Some(record) = perf_file.next_record()? {
+///     match record {
+///         PerfFileRecord::EventRecord { attr_index, record } => {
+///             let record_type = record.record_type;
+///             let parsed_record = record.parse()?;
+///             println!("{:?} for event {}: {:?}", record_type, attr_index, parsed_record);
+///         }
+///         PerfFileRecord::UserRecord(record) => {
+///             let record_type = record.record_type;
+///             let parsed_record = record.parse()?;
+///             println!("{:?}: {:?}", record_type, parsed_record);
+///         }
+///     }
 /// }
 /// # Ok(())
 /// # }
@@ -206,17 +220,13 @@ impl<R: Read> PerfFileReader<R> {
         &self.attributes
     }
 
-    /// Iterates the records in this file. The records are emitted in the correct order, sorted by time.
+    /// Iterates the records in this file. The records are emitted in the
+    /// correct order, i.e. sorted by time.
     ///
-    /// Each iterated element is a pair of (attribute index, raw record). The attribute index
-    /// indexes into the array returned by [`PerfFileReader::event_attributes`].
-    /// Some records don't belong to any particular perf event, for example
-    /// any synthetic record types emitted by the perf user space tool; for these records the index will
-    /// be zero.
-    ///
-    /// `next_record` does some internal buffering so that the sort order can be guaranteed. This buffering
-    /// takes advantage of `FINISHED_ROUND` records so that we don't buffer more records than necessary.
-    pub fn next_record(&mut self) -> Result<Option<(usize, RawRecord)>, Error> {
+    /// `next_record` does some internal buffering so that the sort order can
+    /// be guaranteed. This buffering takes advantage of `FINISHED_ROUND`
+    /// records so that we don't buffer more records than necessary.
+    pub fn next_record(&mut self) -> Result<Option<PerfFileRecord>, Error> {
         if !self.sorter.has_more() {
             self.read_next_round()?;
         }
@@ -458,8 +468,7 @@ impl<R: Read> PerfFileReader<R> {
             }
             self.read_offset += u64::from(header.size);
 
-            let record_type = RecordType(header.type_);
-            if record_type == RecordType::FINISHED_ROUND {
+            if header.type_ == UserRecordType::PERF_FINISHED_ROUND.0 {
                 self.sorter.finish_round();
                 if self.sorter.has_more() {
                     // The sorter is non-empty. We're done.
@@ -480,23 +489,30 @@ impl<R: Read> PerfFileReader<R> {
 
             let data = RawData::from(&buffer[..]);
 
-            let attr_index = match &self.id_parse_infos {
-                IdParseInfos::OnlyOneEvent => 0,
-                IdParseInfos::Same(id_parse_info) => {
-                    get_record_id::<T>(record_type, data, id_parse_info)
-                        .and_then(|id| self.event_id_to_attr_index.get(&id).cloned())
-                        .unwrap_or(0)
-                }
-                IdParseInfos::PerAttribute(sample_id_all) => {
-                    // We have IDENTIFIER (guaranteed by PerAttribute).
-                    get_record_identifier::<T>(record_type, data, *sample_id_all)
-                        .and_then(|id| self.event_id_to_attr_index.get(&id).cloned())
-                        .unwrap_or(0)
-                }
+            let record_type = RecordType(header.type_);
+            let (attr_index, timestamp) = if record_type.is_builtin_type() {
+                let attr_index = match &self.id_parse_infos {
+                    IdParseInfos::OnlyOneEvent => 0,
+                    IdParseInfos::Same(id_parse_info) => {
+                        get_record_id::<T>(record_type, data, id_parse_info)
+                            .and_then(|id| self.event_id_to_attr_index.get(&id).cloned())
+                            .unwrap_or(0)
+                    }
+                    IdParseInfos::PerAttribute(sample_id_all) => {
+                        // We have IDENTIFIER (guaranteed by PerAttribute).
+                        get_record_identifier::<T>(record_type, data, *sample_id_all)
+                            .and_then(|id| self.event_id_to_attr_index.get(&id).cloned())
+                            .unwrap_or(0)
+                    }
+                };
+                let parse_info = self.parse_infos[attr_index];
+                let timestamp = get_record_timestamp::<T>(record_type, data, &parse_info);
+                (Some(attr_index), timestamp)
+            } else {
+                // user type
+                (None, None)
             };
 
-            let parse_info = self.parse_infos[attr_index];
-            let timestamp = get_record_timestamp::<T>(record_type, data, &parse_info);
             let sort_key = RecordSortKey { timestamp, offset };
             let misc = header.misc;
             let pending_record = PendingRecord {
@@ -515,7 +531,7 @@ impl<R: Read> PerfFileReader<R> {
     }
 
     /// Converts pending_record into an RawRecord which references the data in self.current_event_body.
-    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> (usize, RawRecord) {
+    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> PerfFileRecord {
         let PendingRecord {
             record_type,
             misc,
@@ -525,15 +541,28 @@ impl<R: Read> PerfFileReader<R> {
         } = pending_record;
         let prev_buffer = std::mem::replace(&mut self.current_event_body, buffer);
         self.buffers_for_recycling.push_back(prev_buffer);
-        (
-            attr_index,
-            RawRecord {
+
+        let data = RawData::from(&self.current_event_body[..]);
+
+        if record_type.is_builtin_type() {
+            let attr_index = attr_index.unwrap();
+            let parse_info = self.parse_infos[attr_index];
+            let record = RawEventRecord {
                 record_type,
                 misc,
-                data: RawData::from(&self.current_event_body[..]),
-                parse_info: self.parse_infos[attr_index],
-            },
-        )
+                data,
+                parse_info,
+            };
+            PerfFileRecord::EventRecord { attr_index, record }
+        } else {
+            let endian = self.endian;
+            PerfFileRecord::UserRecord(RawUserRecord {
+                record_type,
+                misc,
+                data,
+                endian,
+            })
+        }
     }
 }
 
@@ -563,7 +592,7 @@ struct PendingRecord {
     record_type: RecordType,
     misc: u16,
     buffer: Vec<u8>,
-    attr_index: usize,
+    attr_index: Option<usize>,
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
