@@ -15,12 +15,12 @@
 //! # fn wrapper() -> Result<(), linux_perf_data::Error> {
 //! let file = std::fs::File::open("perf.data")?;
 //! let reader = std::io::BufReader::new(file);
-//! let mut perf_file = PerfFileReader::parse_file(reader)?;
+//! let PerfFileReader { mut perf_file, mut record_iter } = PerfFileReader::parse_file(reader)?;
 //! let event_names: Vec<_> =
 //!     perf_file.event_attributes().iter().filter_map(AttributeDescription::name).collect();
 //! println!("perf events: {}", event_names.join(", "));
 //!
-//! while let Some(record) = perf_file.next_record()? {
+//! while let Some(record) = record_iter.next_record(&mut perf_file)? {
 //!     match record {
 //!         PerfFileRecord::EventRecord { attr_index, record } => {
 //!             let record_type = record.record_type;
@@ -89,12 +89,12 @@ use sorter::Sorter;
 /// # fn wrapper() -> Result<(), linux_perf_data::Error> {
 /// let file = std::fs::File::open("perf.data")?;
 /// let reader = std::io::BufReader::new(file);
-/// let mut perf_file = PerfFileReader::parse_file(reader)?;
+/// let PerfFileReader { mut perf_file, mut record_iter } = PerfFileReader::parse_file(reader)?;
 /// let event_names: Vec<_> =
 ///     perf_file.event_attributes().iter().filter_map(AttributeDescription::name).collect();
 /// println!("perf events: {}", event_names.join(", "));
 ///
-/// while let Some(record) = perf_file.next_record()? {
+/// while let Some(record) = record_iter.next_record(&mut perf_file)? {
 ///     match record {
 ///         PerfFileRecord::EventRecord { attr_index, record } => {
 ///             let record_type = record.record_type;
@@ -112,21 +112,8 @@ use sorter::Sorter;
 /// # }
 /// ```
 pub struct PerfFileReader<R: Read> {
-    reader: R,
-    endian: Endianness,
-    features: FeatureSet,
-    feature_sections: LinearMap<Feature, Vec<u8>>,
-    read_offset: u64,
-    record_data_len: u64,
-    current_event_body: Vec<u8>,
-    /// Guaranteed to have at least one element
-    attributes: Vec<AttributeDescription>,
-    id_parse_infos: IdParseInfos,
-    /// Guaranteed to have at least one element
-    parse_infos: Vec<RecordParseInfo>,
-    event_id_to_attr_index: HashMap<u64, usize>,
-    sorter: Sorter<RecordSortKey, PendingRecord>,
-    buffers_for_recycling: VecDeque<Vec<u8>>,
+    pub perf_file: PerfFile,
+    pub record_iter: PerfRecordIter<R>,
 }
 
 impl<C: Read + Seek> PerfFileReader<C> {
@@ -236,46 +223,47 @@ impl<C: Read + Seek> PerfFileReader<C> {
         // reading records from it.
         cursor.seek(SeekFrom::Start(header.data_section.offset))?;
 
-        Ok(Self {
-            reader: cursor,
+        let perf_file = PerfFile {
             endian,
-            attributes,
-            parse_infos,
-            id_parse_infos,
             features: header.features,
             feature_sections,
+            attributes,
+        };
+
+        let record_iter = PerfRecordIter {
+            reader: cursor,
+            endian,
+            id_parse_infos,
+            parse_infos,
+            event_id_to_attr_index,
             read_offset: 0,
             record_data_len: header.data_section.size,
-            event_id_to_attr_index,
             sorter: Sorter::new(),
             buffers_for_recycling: VecDeque::new(),
             current_event_body: Vec::new(),
+        };
+
+        Ok(Self {
+            perf_file,
+            record_iter,
         })
     }
 }
 
-impl<R: Read> PerfFileReader<R> {
+/// Contains the information from the perf.data file header and feature sections.
+pub struct PerfFile {
+    endian: Endianness,
+    features: FeatureSet,
+    feature_sections: LinearMap<Feature, Vec<u8>>,
+    /// Guaranteed to have at least one element
+    attributes: Vec<AttributeDescription>,
+}
+
+impl PerfFile {
     /// The attributes which were requested for each perf event, along with the IDs.
     pub fn event_attributes(&self) -> &[AttributeDescription] {
         &self.attributes
     }
-
-    /// Iterates the records in this file. The records are emitted in the
-    /// correct order, i.e. sorted by time.
-    ///
-    /// `next_record` does some internal buffering so that the sort order can
-    /// be guaranteed. This buffering takes advantage of `FINISHED_ROUND`
-    /// records so that we don't buffer more records than necessary.
-    pub fn next_record(&mut self) -> Result<Option<PerfFileRecord>, Error> {
-        if !self.sorter.has_more() {
-            self.read_next_round()?;
-        }
-        if let Some(pending_record) = self.sorter.get_next() {
-            return Ok(Some(self.convert_pending_record(pending_record)));
-        }
-        Ok(None)
-    }
-
     /// Returns a map of build ID entries. `perf record` creates these records for any DSOs
     /// which it thinks have been "hit" in the profile. They supplement Mmap records, which
     /// usually don't come with build IDs.
@@ -484,6 +472,43 @@ impl<R: Read> PerfFileReader<R> {
         }
 
         Ok((vec, rest))
+    }
+}
+
+/// An iterator which incrementally reads and sorts the records from a perf.data file.
+pub struct PerfRecordIter<R: Read> {
+    reader: R,
+    endian: Endianness,
+    read_offset: u64,
+    record_data_len: u64,
+    current_event_body: Vec<u8>,
+    id_parse_infos: IdParseInfos,
+    /// Guaranteed to have at least one element
+    parse_infos: Vec<RecordParseInfo>,
+    event_id_to_attr_index: HashMap<u64, usize>,
+    sorter: Sorter<RecordSortKey, PendingRecord>,
+    buffers_for_recycling: VecDeque<Vec<u8>>,
+}
+
+impl<R: Read> PerfRecordIter<R> {
+    /// Iterates the records in this file. The records are emitted in the
+    /// correct order, i.e. sorted by time.
+    ///
+    /// `next_record` does some internal buffering so that the sort order can
+    /// be guaranteed. This buffering takes advantage of `FINISHED_ROUND`
+    /// records so that we don't buffer more records than necessary.
+    pub fn next_record(
+        &mut self,
+        _perf_file: &mut PerfFile,
+    ) -> Result<Option<PerfFileRecord>, Error> {
+        if !self.sorter.has_more() {
+            self.read_next_round()?;
+        }
+        if let Some(pending_record) = self.sorter.get_next() {
+            let record = self.convert_pending_record(pending_record);
+            return Ok(Some(record));
+        }
+        Ok(None)
     }
 
     /// Reads events into self.sorter until a FINISHED_ROUND record is found
