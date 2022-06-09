@@ -508,7 +508,9 @@ impl<R: Read> PerfFileReader<R> {
             }
             self.read_offset += u64::from(header.size);
 
-            if header.type_ == UserRecordType::PERF_FINISHED_ROUND.0 {
+            if UserRecordType::try_from(RecordType(header.type_))
+                == Some(UserRecordType::PERF_FINISHED_ROUND)
+            {
                 self.sorter.finish_round();
                 if self.sorter.has_more() {
                     // The sorter is non-empty. We're done.
@@ -584,7 +586,15 @@ impl<R: Read> PerfFileReader<R> {
 
         let data = RawData::from(&self.current_event_body[..]);
 
-        if record_type.is_builtin_type() {
+        if let Some(record_type) = UserRecordType::try_from(record_type) {
+            let endian = self.endian;
+            PerfFileRecord::UserRecord(RawUserRecord {
+                record_type,
+                misc,
+                data,
+                endian,
+            })
+        } else {
             let attr_index = attr_index.unwrap();
             let parse_info = self.parse_infos[attr_index];
             let record = RawEventRecord {
@@ -594,14 +604,6 @@ impl<R: Read> PerfFileReader<R> {
                 parse_info,
             };
             PerfFileRecord::EventRecord { attr_index, record }
-        } else {
-            let endian = self.endian;
-            PerfFileRecord::UserRecord(RawUserRecord {
-                record_type,
-                misc,
-                data,
-                endian,
-            })
         }
     }
 }
