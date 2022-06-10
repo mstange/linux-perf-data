@@ -2,6 +2,7 @@ use std::io;
 
 /// The error type used in this crate.
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// The data slice was not big enough to read the struct, or we
     /// were trying to follow an invalid offset to somewhere outside
@@ -55,6 +56,7 @@ pub enum Error {
 /// This error indicates that the data slice was not large enough to
 /// read the respective item.
 #[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReadError {
     #[error("Could not read PerfHeader")]
     PerfHeader,

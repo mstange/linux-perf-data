@@ -23,6 +23,7 @@ pub enum PerfFileRecord<'a> {
 
 /// A record emitted by a user space tool, for example by `perf` or by `simpleperf`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum UserRecord<'a> {
     ThreadMap(ThreadMap<'a>),
     Raw(RawUserRecord<'a>),
