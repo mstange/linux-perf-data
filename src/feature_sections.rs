@@ -1,6 +1,7 @@
 use std::io::{Read, Seek, SeekFrom};
 
 use byteorder::{ByteOrder, ReadBytesExt};
+use linear_map::LinearMap;
 use linux_perf_event_reader::PerfEventAttr;
 
 use crate::{perf_file::PerfFileSection, Error, ReadError};
@@ -46,7 +47,7 @@ impl SampleTimeRange {
     }
 }
 
-pub struct HeaderString(String);
+pub struct HeaderString;
 
 impl HeaderString {
     /// Parse a string.
@@ -182,5 +183,36 @@ impl AttributeDescription {
     /// The IDs for this event.
     pub fn ids(&self) -> &[u64] {
         &self.event_ids
+    }
+}
+
+/// The names of the dynamic PMU types used in [`PerfEventType::DynamicPmu`](linux_perf_event_reader::PerfEventType::DynamicPmu).
+///
+/// For example, this allows you to find out whether a `DynamicPmu`
+/// perf event is a kprobe or a uprobe, which then lets you interpret
+/// the meaning of the config fields.
+pub struct PmuMappings;
+
+impl PmuMappings {
+    pub fn parse<R: Read, T: ByteOrder>(
+        mut reader: R,
+    ) -> Result<LinearMap<u32, String>, std::io::Error> {
+        // struct {
+        //     uint32_t nr;
+        //     struct pmu {
+        //        uint32_t pmu_type;
+        //        struct perf_header_string pmu_name;
+        //     } [nr]; /* Variable length records */
+        // };
+        let nr = reader.read_u32::<T>()?;
+        let mut vec = Vec::with_capacity(nr as usize);
+        for _ in 0..nr {
+            let pmu_type = reader.read_u32::<T>()?;
+            if let Some(pmu_name) = HeaderString::parse::<_, T>(&mut reader)? {
+                vec.push((pmu_type, pmu_name));
+            }
+        }
+        vec.sort_by_key(|item| item.0);
+        Ok(vec.into_iter().collect())
     }
 }

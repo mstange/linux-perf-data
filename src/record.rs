@@ -12,7 +12,7 @@ use crate::thread_map::ThreadMap;
 pub enum PerfFileRecord<'a> {
     /// Emitted by the kernel for a perf event.
     EventRecord {
-        /// And index into the array returned by [`PerfFileReader::event_attributes`](crate::PerfFileReader::event_attributes).
+        /// And index into the array returned by [`PerfFile::event_attributes`](crate::PerfFile::event_attributes).
         attr_index: usize,
         /// The record.
         record: RawEventRecord<'a>,

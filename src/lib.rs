@@ -51,6 +51,7 @@ mod thread_map;
 
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
+use feature_sections::PmuMappings;
 pub use feature_sections::{AttributeDescription, NrCpus, SampleTimeRange};
 pub use features::{Feature, FeatureSet, FeatureSetIter};
 pub use record::{PerfFileRecord, RawUserRecord, UserRecord, UserRecordType};
@@ -416,6 +417,36 @@ impl PerfFile {
             Endianness::BigEndian => u64::from_be_bytes(data),
         };
         Ok(Some(mem))
+    }
+
+    /// The names of the dynamic PMU types used in [`PerfEventType::DynamicPmu`](linux_perf_event_reader::PerfEventType::DynamicPmu).
+    ///
+    /// This mapping allows you to interpret the perf event type field of the perf event
+    /// attributes returned by [`PerfFile::event_attributes`].
+    ///
+    /// For example, let's say you observed a kprobe or a uprobe. The perf event will be
+    /// of type `DynamicPmu`, and its dynamic PMU type ID might be 6 or 7.
+    ///
+    /// Just by seeing this 6 or 7 you don't know for sure what type of event it is.
+    /// But the `pmu_mappings()` map will have a 6 => "kprobe" and a 7 => "uprobe" entry.
+    /// Once you see those entries, you can be sure what you're dealing with.
+    ///
+    /// This map also contains the values "software", "tracepoint", and "breakpoint"; those
+    /// always have the IDs 1, 2 and 5, respectively.
+    ///
+    /// Additionally, the map contains the CPU-specific dynamic entries. For example, an Intel
+    /// CPU might have IDs for the names "cpu", "intel_bts", "intel_pt", "msr", "uncore_imc",
+    /// "uncore_cbox_0", ..., "uncore_cbox_7", "uncore_arb", "cstate_core", "cstate_pkg", "power",
+    /// "i915".
+    pub fn pmu_mappings(&self) -> Result<Option<LinearMap<u32, String>>, Error> {
+        self.feature_section_data(Feature::PMU_MAPPINGS)
+            .map(|section| {
+                Ok(match self.endian {
+                    Endianness::LittleEndian => PmuMappings::parse::<_, LittleEndian>(section),
+                    Endianness::BigEndian => PmuMappings::parse::<_, BigEndian>(section),
+                }?)
+            })
+            .transpose()
     }
 
     /// The set of features used in this perf file.
