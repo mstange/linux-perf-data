@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use linux_perf_event_reader::records::RawEventRecord;
+use linux_perf_event_reader::RawEventRecord;
 use linux_perf_event_reader::{Endianness, RawData, RecordType};
 
 use crate::constants::*;

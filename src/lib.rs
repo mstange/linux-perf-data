@@ -70,7 +70,7 @@ use std::ops::Deref;
 use build_id_event::BuildIdEvent;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use linear_map::LinearMap;
-use linux_perf_event_reader::records::{
+use linux_perf_event_reader::{
     get_record_id, get_record_identifier, get_record_timestamp, RawEventRecord, RecordIdParseInfo,
     RecordParseInfo,
 };

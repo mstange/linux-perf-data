@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use byteorder::{ByteOrder, ReadBytesExt};
-use linux_perf_event_reader::{consts::PERF_RECORD_MISC_BUILD_ID_SIZE, PerfEventHeader};
+use linux_perf_event_reader::{constants::PERF_RECORD_MISC_BUILD_ID_SIZE, PerfEventHeader};
 
 /// Old versions of perf did not write down the length of the build ID.
 /// Detect the true length by removing 4-byte chunks of zeros from the end.
