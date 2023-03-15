@@ -4,7 +4,8 @@ use byteorder::{ByteOrder, ReadBytesExt};
 use linear_map::LinearMap;
 use linux_perf_event_reader::PerfEventAttr;
 
-use crate::{perf_file::PerfFileSection, Error, ReadError};
+use super::section::PerfFileSection;
+use crate::{Error, ReadError};
 
 /// The number of available and online CPUs. (`nr_cpus`)
 #[derive(Debug, Clone, Copy)]
@@ -117,7 +118,7 @@ impl AttributeDescription {
         cursor.seek(SeekFrom::Start(event_types_section.offset))?;
 
         // Each entry in the event_types section is a PerfEventAttr followed by a PerfFileSection.
-        let entry_size = attr_size + PerfFileSection::STRUCT_SIZE as u64;
+        let entry_size = attr_size + PerfFileSection::STRUCT_SIZE;
         let entry_count = event_types_section.size / entry_size;
         let mut perf_event_event_type_info = Vec::with_capacity(entry_count as usize);
         for _ in 0..entry_count {

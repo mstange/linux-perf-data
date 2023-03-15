@@ -112,8 +112,7 @@ impl<'a> Iterator for ThreadMapIter<'a> {
 #[cfg(test)]
 mod test {
     use byteorder::LittleEndian;
-
-    use crate::RawData;
+    use linux_perf_event_reader::RawData;
 
     use super::ThreadMap;
 
