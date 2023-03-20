@@ -7,6 +7,9 @@
 //! There are two types of records: event records from the kernel, and "user
 //! records" from perf / simpleperf.
 //!
+//! The [`jitdump`] module lets you parse jitdump files, which are used in
+//! conjunction with perf.data files when profiling JIT runtimes.
+//!
 //! # Example
 //!
 //! ```
