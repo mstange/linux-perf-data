@@ -47,6 +47,7 @@ mod feature_sections;
 mod features;
 mod file_reader;
 mod header;
+pub mod jitdump;
 mod perf_file;
 mod record;
 mod section;
@@ -59,6 +60,7 @@ pub use linux_perf_event_reader;
 
 pub use linux_perf_event_reader::Endianness;
 
+pub use dso_info::DsoInfo;
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
 pub use feature_sections::{AttributeDescription, NrCpus, SampleTimeRange};
