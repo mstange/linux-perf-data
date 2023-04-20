@@ -19,3 +19,8 @@ thiserror = "1.0.30"
 linux-perf-event-reader = "0.9.0"
 # linux-perf-event-reader = { path = "../linux-perf-event-reader" }
 linear-map = "1.2.0"
+
+[dev-dependencies]
+yaxpeax-arch = { version = "0.2.7", default-features = false }
+yaxpeax-x86 = { version = "1.1.4", default-features = false, features = ["std", "fmt"] }
+yaxpeax-arm = { version = "0.2.3", default-features = false, features = ["std"] }
