@@ -49,13 +49,15 @@ impl BuildIdEvent {
 
         // If PERF_RECORD_MISC_BUILD_ID_SIZE is set in header.misc, then build_id_bytes[20]
         // is the length of the build id (<= 20), and build_id_bytes[21..24] are unused.
-        // Otherwise, the length of the build ID is unknown and has to be detected by
-        // removing trailing 4-byte groups of zero bytes. (Usually there will be
-        // exactly one such group, because build IDs are usually 20 bytes long.)
+        // Otherwise, the length of the build ID is unknown but at most 20, and has to be
+        // detected by removing trailing 4-byte groups of zero bytes. (Regular build IDs
+        // are 20 bytes long, so usually nothing gets removed.)
+        // Simpleperf (as of June 2023) does not use PERF_RECORD_MISC_BUILD_ID_SIZE and fills
+        // bytes 20..24 with uninitialized data, so those bytes have to be ignored.
         let build_id_len = if header.misc & PERF_RECORD_MISC_BUILD_ID_SIZE != 0 {
             build_id_bytes[20].min(20)
         } else {
-            detect_build_id_len(&build_id_bytes)
+            detect_build_id_len(&build_id_bytes[..20])
         };
         let build_id = build_id_bytes[..build_id_len as usize].to_owned();
 
