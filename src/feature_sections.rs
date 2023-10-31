@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 
 use byteorder::{ByteOrder, ReadBytesExt};
@@ -147,25 +148,78 @@ impl AttributeDescription {
         Ok(attributes)
     }
 
+    /// Parse the attr id section of a simpleperf perf.data file. This first parses the offset and
+    /// size of the id section from the the corresponding attr section, then parses the id section
+    /// itself. This assumes the cursor is currently located at the end of the specified attr in the
+    /// attr section.
+    fn parse_simpleperf_id_section<C: Read + Seek, T: ByteOrder>(
+        cursor: &mut C,
+        attr_size: u64,
+    ) -> Result<Vec<u64>, Error> {
+        // We require the actual size of the perf_event_attr, which is stored as a u32 at an offset
+        // of 4 bytes from the start of the attr.
+        cursor.seek(SeekFrom::Current(4 - attr_size as i64))?;
+        let actual_size = cursor.read_u32::<T>()? as u64;
+        // The offset and size of the ID section are stored as two u64s immediately after the actual
+        // size of the attr.
+        if actual_size > attr_size || attr_size - actual_size < 16 {
+            return Err(ReadError::PerfEventAttr.into());
+        }
+        cursor.seek(SeekFrom::Current(actual_size as i64 - 8))?;
+        let id_offset = cursor.read_u64::<T>()?;
+        let id_size = cursor.read_u64::<T>()?;
+
+        let num_event_ids = id_size as usize / std::mem::size_of::<u64>();
+        let mut event_ids = Vec::with_capacity(num_event_ids);
+        cursor.seek(SeekFrom::Start(id_offset))?;
+        for _ in 0..num_event_ids {
+            event_ids.push(cursor.read_u64::<T>()?);
+        }
+        Ok(event_ids)
+    }
+
     /// Parse the `attr` section of a perf.data file into a Vec of `AttributeDescription` structs.
-    /// This section is used as a last resort because it does not have any
+    /// This section is normally used as a last resort because it does not have any
     /// information about event IDs. If multiple events are observed, we will
-    /// not be able to know which event record belongs to which attr.
+    /// not be able to know which event record belongs to which attr. For profiles recorded
+    /// using simpleperf, however, we may still be able to obtain this information.
     pub fn parse_attr_section<C: Read + Seek, T: ByteOrder>(
         mut cursor: C,
         attr_section: &PerfFileSection,
         attr_size: u64,
+        simpleperf_meta_info: &Option<HashMap<&str, &str>>,
     ) -> Result<Vec<Self>, Error> {
+        let names = simpleperf_meta_info
+            .as_ref()
+            .and_then(|info| info.get("event_type_info"))
+            .map(|info| info.split('\n'))
+            .into_iter()
+            .flatten()
+            .map(|info| info.split_once(',').map(|(name, _)| name))
+            .collect::<Vec<Option<&str>>>();
+
         cursor.seek(SeekFrom::Start(attr_section.offset))?;
         let attr_count = attr_section.size / attr_size;
         let mut attributes = Vec::with_capacity(attr_count as usize);
-        for _ in 0..attr_count {
+        for i in 0..attr_count as usize {
             let attr = PerfEventAttr::parse::<_, T>(&mut cursor, Some(attr_size as u32))
                 .map_err(|_| ReadError::PerfEventAttr)?;
+
+            let name = names.get(i).and_then(Option::as_deref).map(str::to_string);
+
+            let event_ids = if simpleperf_meta_info.is_some() {
+                let pos = cursor.stream_position()?;
+                let event_ids = Self::parse_simpleperf_id_section::<_, T>(&mut cursor, attr_size)?;
+                cursor.seek(SeekFrom::Start(pos))?;
+                event_ids
+            } else {
+                vec![]
+            };
+
             attributes.push(AttributeDescription {
                 attr,
-                name: None,
-                event_ids: vec![],
+                name,
+                event_ids,
             });
         }
         Ok(attributes)

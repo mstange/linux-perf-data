@@ -96,6 +96,23 @@ impl<C: Read + Seek> PerfFileReader<C> {
             feature_sections.insert(feature, data);
         }
 
+        let simpleperf_meta_info = feature_sections
+            .get(&Feature::SIMPLEPERF_META_INFO)
+            .map(|meta_info_section| {
+                let it = meta_info_section.split(|c| *c == b'\0');
+                let keys = it.clone().step_by(2);
+                let values = it.skip(1).step_by(2);
+                keys.zip(values)
+                    .map(|(k, v)| {
+                        Ok((
+                            std::str::from_utf8(k).map_err(|_| Error::StringUtf8)?,
+                            std::str::from_utf8(v).map_err(|_| Error::StringUtf8)?,
+                        ))
+                    })
+                    .collect::<Result<HashMap<&str, &str>, Error>>()
+            })
+            .transpose()?;
+
         let attributes =
             if let Some(event_desc_section) = feature_sections.get(&Feature::EVENT_DESC) {
                 AttributeDescription::parse_event_desc_section::<_, T>(&event_desc_section[..])?
@@ -110,6 +127,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
                     &mut cursor,
                     &header.attr_section,
                     header.attr_size,
+                    &simpleperf_meta_info,
                 )?
             };
 
