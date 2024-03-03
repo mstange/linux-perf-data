@@ -5,6 +5,7 @@ use linear_map::LinearMap;
 use linux_perf_event_reader::PerfEventAttr;
 
 use super::section::PerfFileSection;
+use crate::simpleperf::SimplePerfEventType;
 use crate::{Error, ReadError};
 
 /// The number of available and online CPUs. (`nr_cpus`)
@@ -111,15 +112,60 @@ impl AttributeDescription {
     /// This section was used in the past but is no longer used.
     /// Only call this function if event_types_section.size is non-zero.
     pub fn parse_event_types_section<C: Read + Seek, T: ByteOrder>(
-        mut cursor: C,
+        cursor: C,
         event_types_section: &PerfFileSection,
         attr_size: u64,
     ) -> Result<Vec<Self>, Error> {
-        cursor.seek(SeekFrom::Start(event_types_section.offset))?;
+        // In the event_types section, each attribute takes up attr_size bytes and is followed
+        // by a PerfFileSection struct (16 bytes).
+        Self::parse_sequence_of_attr_and_id_section::<C, T>(
+            cursor,
+            event_types_section,
+            attr_size,
+            None,
+        )
+    }
+
+    /// Parse the `attr` section of a perf.data file into a Vec of `AttributeDescription` structs,
+    /// for files from Simpleperf. These files pack event ID information into the `attr` section
+    /// and contain event names in the `SIMPLEPERF_META_INFO` section.
+    pub fn parse_simpleperf_attr_section<C: Read + Seek, T: ByteOrder>(
+        cursor: C,
+        attr_section: &PerfFileSection,
+        attr_size: u64,
+        event_types: &[SimplePerfEventType],
+    ) -> Result<Vec<Self>, Error> {
+        if attr_size < PerfFileSection::STRUCT_SIZE {
+            return Err(ReadError::PerfEventAttr.into());
+        }
+        // Simpleperf reports an attr_size which is 16 bytes larger than the size that's used
+        // for the perf_event_attr data. These 16 extra bytes carry the (offset, size) of the
+        // per-event event IDs section.
+        // So the format of the attr section in the simpleperf is very similar to the format of the
+        // event_types section in old perf.data files, with the only difference being that the
+        // id_section information is "inside" the attr_size rather than outside it.
+        let attr_size_without_id_section = attr_size - PerfFileSection::STRUCT_SIZE;
+        let event_names: Vec<_> = event_types.iter().map(|t| t.name.as_str()).collect();
+        Self::parse_sequence_of_attr_and_id_section::<C, T>(
+            cursor,
+            attr_section,
+            attr_size_without_id_section,
+            Some(&event_names),
+        )
+    }
+
+    /// Used for parsing the `event_types` section (old Linux perf) and for parsing the `attr` section (Simpleperf).
+    fn parse_sequence_of_attr_and_id_section<C: Read + Seek, T: ByteOrder>(
+        mut cursor: C,
+        section: &PerfFileSection,
+        attr_size: u64,
+        event_names: Option<&[&str]>,
+    ) -> Result<Vec<Self>, Error> {
+        cursor.seek(SeekFrom::Start(section.offset))?;
 
         // Each entry in the event_types section is a PerfEventAttr followed by a PerfFileSection.
         let entry_size = attr_size + PerfFileSection::STRUCT_SIZE;
-        let entry_count = event_types_section.size / entry_size;
+        let entry_count = section.size / entry_size;
         let mut perf_event_event_type_info = Vec::with_capacity(entry_count as usize);
         for _ in 0..entry_count {
             let attr = PerfEventAttr::parse::<_, T>(&mut cursor, Some(attr_size as u32))
@@ -130,7 +176,7 @@ impl AttributeDescription {
 
         // Read the lists of event IDs for each event type.
         let mut attributes = Vec::new();
-        for (attr, section) in perf_event_event_type_info {
+        for (event_index, (attr, section)) in perf_event_event_type_info.into_iter().enumerate() {
             cursor.seek(SeekFrom::Start(section.offset))?;
             // This section is just a list of u64 event IDs.
             let id_count = section.size / 8;
@@ -138,9 +184,14 @@ impl AttributeDescription {
             for _ in 0..id_count {
                 event_ids.push(cursor.read_u64::<T>()?);
             }
+            let name = if let Some(names) = event_names {
+                names.get(event_index).map(|s| s.to_string())
+            } else {
+                None
+            };
             attributes.push(AttributeDescription {
                 attr,
-                name: None,
+                name,
                 event_ids,
             });
         }

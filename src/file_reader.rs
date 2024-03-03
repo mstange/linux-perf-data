@@ -16,6 +16,7 @@ use super::header::PerfHeader;
 use super::perf_file::PerfFile;
 use super::record::{PerfFileRecord, RawUserRecord, UserRecordType};
 use super::section::PerfFileSection;
+use super::simpleperf;
 use super::sorter::Sorter;
 
 /// A parser for the perf.data file format.
@@ -104,6 +105,18 @@ impl<C: Read + Seek> PerfFileReader<C> {
                     &mut cursor,
                     &header.event_types_section,
                     header.attr_size,
+                )?
+            } else if let Some(simpleperf_meta_info) =
+                feature_sections.get(&Feature::SIMPLEPERF_META_INFO)
+            {
+                let info_map = simpleperf::parse_meta_info_map(&simpleperf_meta_info[..])?;
+                let event_types = simpleperf::get_event_types(&info_map)
+                    .ok_or(Error::NoEventTypesInSimpleperfMetaInfo)?;
+                AttributeDescription::parse_simpleperf_attr_section::<_, T>(
+                    &mut cursor,
+                    &header.attr_section,
+                    header.attr_size,
+                    &event_types,
                 )?
             } else {
                 AttributeDescription::parse_attr_section::<_, T>(

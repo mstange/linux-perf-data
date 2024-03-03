@@ -11,6 +11,7 @@ use super::dso_key::DsoKey;
 use super::error::Error;
 use super::feature_sections::{AttributeDescription, NrCpus, PmuMappings, SampleTimeRange};
 use super::features::{Feature, FeatureSet};
+use super::simpleperf;
 
 /// Contains the information from the perf.data file header and feature sections.
 pub struct PerfFile {
@@ -178,6 +179,14 @@ impl PerfFile {
             Endianness::BigEndian => u64::from_be_bytes(data),
         };
         Ok(Some(mem))
+    }
+
+    /// The meta info map, if this is a Simpleperf profile.
+    pub fn simpleperf_meta_info(&self) -> Result<Option<HashMap<&str, &str>>, Error> {
+        match self.feature_section_data(Feature::SIMPLEPERF_META_INFO) {
+            Some(section) => Ok(Some(simpleperf::parse_meta_info_map(section)?)),
+            None => Ok(None),
+        }
     }
 
     /// The names of the dynamic PMU types used in [`PerfEventType::DynamicPmu`](linux_perf_event_reader::PerfEventType::DynamicPmu).

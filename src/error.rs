@@ -37,6 +37,9 @@ pub enum Error {
     #[error("The feature section wasn't big enough")]
     FeatureSectionTooSmall,
 
+    #[error("No event types found in the simpleperf meta info section")]
+    NoEventTypesInSimpleperfMetaInfo,
+
     #[error("The indicated string length wouldn't fit in the indicated section size")]
     StringLengthTooLong,
 

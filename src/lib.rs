@@ -54,6 +54,7 @@ pub mod jitdump;
 mod perf_file;
 mod record;
 mod section;
+mod simpleperf;
 mod sorter;
 mod thread_map;
 
