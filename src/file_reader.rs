@@ -7,7 +7,7 @@ use linux_perf_event_reader::{
 };
 
 use std::collections::{HashMap, VecDeque};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use super::error::{Error, ReadError};
 use super::feature_sections::AttributeDescription;
@@ -99,7 +99,9 @@ impl<C: Read + Seek> PerfFileReader<C> {
 
         let attributes =
             if let Some(event_desc_section) = feature_sections.get(&Feature::EVENT_DESC) {
-                AttributeDescription::parse_event_desc_section::<_, T>(&event_desc_section[..])?
+                AttributeDescription::parse_event_desc_section::<_, T>(Cursor::new(
+                    &event_desc_section[..],
+                ))?
             } else if header.event_types_section.size != 0 {
                 AttributeDescription::parse_event_types_section::<_, T>(
                     &mut cursor,

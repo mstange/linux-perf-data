@@ -73,9 +73,9 @@ pub struct AttributeDescription {
 
 impl AttributeDescription {
     /// Parse the `HEADER_EVENT_DESC` section of a perf.data file into a Vec of `AttributeDescription` structs.
-    pub fn parse_event_desc_section<R: Read, T: ByteOrder>(
-        mut reader: R,
-    ) -> Result<Vec<Self>, std::io::Error> {
+    pub fn parse_event_desc_section<C: Read + Seek, T: ByteOrder>(
+        mut cursor: C,
+    ) -> Result<Vec<Self>, Error> {
         // ```c
         // struct {
         //   uint32_t nr; /* number of events */
@@ -88,16 +88,16 @@ impl AttributeDescription {
         //   } events[nr]; /* Variable length records */
         // };
         // ```
-        let nr = reader.read_u32::<T>()?;
+        let nr = cursor.read_u32::<T>()?;
         let mut attributes = Vec::with_capacity(nr as usize);
-        let attr_size = reader.read_u32::<T>()?;
+        let attr_size = cursor.read_u32::<T>()? as u64;
         for _ in 0..nr {
-            let attr = PerfEventAttr::parse::<_, T>(&mut reader, Some(attr_size))?;
-            let nr_ids = reader.read_u32::<T>()?;
-            let event_string = HeaderString::parse::<_, T>(&mut reader)?;
+            let attr = Self::parse_single_attr::<_, T>(&mut cursor, attr_size)?;
+            let nr_ids = cursor.read_u32::<T>()?;
+            let event_string = HeaderString::parse::<_, T>(&mut cursor)?;
             let mut ids = Vec::with_capacity(nr_ids as usize);
             for _ in 0..nr_ids {
-                ids.push(reader.read_u64::<T>()?);
+                ids.push(cursor.read_u64::<T>()?);
             }
             attributes.push(AttributeDescription {
                 attr,
@@ -168,8 +168,7 @@ impl AttributeDescription {
         let entry_count = section.size / entry_size;
         let mut perf_event_event_type_info = Vec::with_capacity(entry_count as usize);
         for _ in 0..entry_count {
-            let attr = PerfEventAttr::parse::<_, T>(&mut cursor, Some(attr_size as u32))
-                .map_err(|_| ReadError::PerfEventAttr)?;
+            let attr = Self::parse_single_attr::<_, T>(&mut cursor, attr_size)?;
             let event_ids = PerfFileSection::parse::<_, T>(&mut cursor)?;
             perf_event_event_type_info.push((attr, event_ids));
         }
@@ -211,8 +210,7 @@ impl AttributeDescription {
         let attr_count = attr_section.size / attr_size;
         let mut attributes = Vec::with_capacity(attr_count as usize);
         for _ in 0..attr_count {
-            let attr = PerfEventAttr::parse::<_, T>(&mut cursor, Some(attr_size as u32))
-                .map_err(|_| ReadError::PerfEventAttr)?;
+            let attr = Self::parse_single_attr::<_, T>(&mut cursor, attr_size)?;
             attributes.push(AttributeDescription {
                 attr,
                 name: None,
@@ -220,6 +218,22 @@ impl AttributeDescription {
             });
         }
         Ok(attributes)
+    }
+
+    fn parse_single_attr<C: Read + Seek, T: ByteOrder>(
+        mut cursor: C,
+        attr_size: u64,
+    ) -> Result<PerfEventAttr, Error> {
+        let (attr, size) =
+            PerfEventAttr::parse::<_, T>(&mut cursor).map_err(|_| ReadError::PerfEventAttr)?;
+        if size > attr_size {
+            return Err(Error::InconsistentAttributeSizes(size, attr_size));
+        }
+        if size < attr_size {
+            let remaining_bytes = attr_size - size;
+            cursor.seek(SeekFrom::Current(remaining_bytes as i64))?;
+        }
+        Ok(attr)
     }
 
     /// The event attributes.

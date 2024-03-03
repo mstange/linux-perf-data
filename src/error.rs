@@ -22,6 +22,9 @@ pub enum Error {
     #[error("The file declares no perf event attributes, so samples cannot be parsed")]
     NoAttributes,
 
+    #[error("Inconsistent attribute sizes: The self-reported size in the attribute was {0} bytes, which is larger than the the attribute size specified in the file header ({1} bytes)")]
+    InconsistentAttributeSizes(u64, u64),
+
     #[error("The file contains multiple events but attr {0} does not specify IDENTIFIER")]
     NoIdentifierDespiteMultiEvent(usize),
 
