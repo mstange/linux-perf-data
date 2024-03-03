@@ -53,6 +53,12 @@ pub enum Error {
     InvalidPerfEventSize,
 }
 
+impl From<std::str::Utf8Error> for Error {
+    fn from(_: std::str::Utf8Error) -> Self {
+        Error::StringUtf8
+    }
+}
+
 /// This error indicates that the data slice was not large enough to
 /// read the respective item.
 #[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]

@@ -241,7 +241,7 @@ impl PerfFile {
         }
         let (s, rest) = rest.split_at(len);
         let actual_len = memchr::memchr(0, s).unwrap_or(s.len());
-        let s = std::str::from_utf8(&s[..actual_len]).map_err(|_| Error::StringUtf8)?;
+        let s = std::str::from_utf8(&s[..actual_len])?;
         Ok((s, rest))
     }
 
