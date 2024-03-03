@@ -32,14 +32,16 @@ pub const HEADER_CLOCK_DATA: u32 = 29;
 pub const HEADER_HYBRID_TOPOLOGY: u32 = 30;
 pub const HEADER_HYBRID_CPU_PMU_CAPS: u32 = 31;
 
+/// simpleperf `FEAT_FILE`
+pub const HEADER_SIMPLEPERF_FILE: u32 = 128;
 /// simpleperf `FEAT_META_INFO`
-pub const HEADER_SIMPLEPERF_META_INFO: u32 = 128;
+pub const HEADER_SIMPLEPERF_META_INFO: u32 = 129;
 /// simpleperf `FEAT_DEBUG_UNWIND`
-pub const HEADER_SIMPLEPERF_DEBUG_UNWIND: u32 = 129;
+pub const HEADER_SIMPLEPERF_DEBUG_UNWIND: u32 = 130;
 /// simpleperf `FEAT_DEBUG_UNWIND_FILE`
-pub const HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE: u32 = 130;
+pub const HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE: u32 = 131;
 /// simpleperf `FEAT_FILE2`
-pub const HEADER_SIMPLEPERF_FILE2: u32 = 131;
+pub const HEADER_SIMPLEPERF_FILE2: u32 = 132;
 
 /// A piece of optional data stored in a perf.data file. Its data is contained in a
 /// "feature section" at the end of the file.
@@ -83,6 +85,7 @@ impl Feature {
     pub const CLOCK_DATA: Self = Self(HEADER_CLOCK_DATA);
     pub const HYBRID_TOPOLOGY: Self = Self(HEADER_HYBRID_TOPOLOGY);
     pub const HYBRID_CPU_PMU_CAPS: Self = Self(HEADER_HYBRID_CPU_PMU_CAPS);
+    pub const SIMPLEPERF_FILE: Self = Self(HEADER_SIMPLEPERF_FILE);
     pub const SIMPLEPERF_META_INFO: Self = Self(HEADER_SIMPLEPERF_META_INFO);
     pub const SIMPLEPERF_DEBUG_UNWIND: Self = Self(HEADER_SIMPLEPERF_DEBUG_UNWIND);
     pub const SIMPLEPERF_DEBUG_UNWIND_FILE: Self = Self(HEADER_SIMPLEPERF_DEBUG_UNWIND_FILE);
@@ -123,6 +126,7 @@ impl fmt::Debug for Feature {
             Self::CLOCK_DATA => "CLOCK_DATA".fmt(f),
             Self::HYBRID_TOPOLOGY => "HYBRID_TOPOLOGY".fmt(f),
             Self::HYBRID_CPU_PMU_CAPS => "HYBRID_CPU_PMU_CAPS".fmt(f),
+            Self::SIMPLEPERF_FILE => "SIMPLEPERF_FILE".fmt(f),
             Self::SIMPLEPERF_META_INFO => "SIMPLEPERF_META_INFO".fmt(f),
             Self::SIMPLEPERF_DEBUG_UNWIND => "SIMPLEPERF_DEBUG_UNWIND".fmt(f),
             Self::SIMPLEPERF_DEBUG_UNWIND_FILE => "SIMPLEPERF_DEBUG_UNWIND_FILE".fmt(f),
