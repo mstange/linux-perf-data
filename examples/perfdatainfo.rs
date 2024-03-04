@@ -19,6 +19,16 @@ fn main() {
         }
     };
 
+    // Print the feature sections.
+    let features = perf_file.features();
+    let features: String = features
+        .iter()
+        .map(|f| format!("{f}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    println!("Features: {features}");
+    println!();
+
     let mut event_record_map = HashMap::new();
     let mut user_record_map = HashMap::new();
 

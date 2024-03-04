@@ -92,7 +92,7 @@ impl Feature {
     pub const SIMPLEPERF_FILE2: Self = Self(HEADER_SIMPLEPERF_FILE2);
 }
 
-impl fmt::Debug for Feature {
+impl fmt::Display for Feature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::TRACING_DATA => "TRACING_DATA".fmt(f),
@@ -133,6 +133,12 @@ impl fmt::Debug for Feature {
             Self::SIMPLEPERF_FILE2 => "SIMPLEPERF_FILE2".fmt(f),
             _ => f.write_fmt(format_args!("Unknown Feature {}", &self.0)),
         }
+    }
+}
+
+impl fmt::Debug for Feature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
     }
 }
 
