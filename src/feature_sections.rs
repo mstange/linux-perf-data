@@ -257,12 +257,10 @@ impl AttributeDescription {
 /// For example, this allows you to find out whether a `DynamicPmu`
 /// perf event is a kprobe or a uprobe, which then lets you interpret
 /// the meaning of the config fields.
-pub struct PmuMappings;
+pub struct PmuMappings(pub LinearMap<u32, String>);
 
 impl PmuMappings {
-    pub fn parse<R: Read, T: ByteOrder>(
-        mut reader: R,
-    ) -> Result<LinearMap<u32, String>, std::io::Error> {
+    pub fn parse<R: Read, T: ByteOrder>(mut reader: R) -> Result<Self, std::io::Error> {
         // struct {
         //     uint32_t nr;
         //     struct pmu {
@@ -279,6 +277,6 @@ impl PmuMappings {
             }
         }
         vec.sort_by_key(|item| item.0);
-        Ok(vec.into_iter().collect())
+        Ok(Self(vec.into_iter().collect()))
     }
 }

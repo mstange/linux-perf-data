@@ -208,7 +208,7 @@ impl PerfFile {
     /// CPU might have IDs for the names "cpu", "intel_bts", "intel_pt", "msr", "uncore_imc",
     /// "uncore_cbox_0", ..., "uncore_cbox_7", "uncore_arb", "cstate_core", "cstate_pkg", "power",
     /// "i915".
-    pub fn pmu_mappings(&self) -> Result<Option<LinearMap<u32, String>>, Error> {
+    pub fn pmu_mappings(&self) -> Result<Option<PmuMappings>, Error> {
         self.feature_section_data(Feature::PMU_MAPPINGS)
             .map(|section| {
                 Ok(match self.endian {
