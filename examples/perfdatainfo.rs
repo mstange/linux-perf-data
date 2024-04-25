@@ -28,6 +28,13 @@ fn main() {
         .join(", ");
     println!("Features: {features}");
     println!();
+    if let Ok(Some(simpleperf_file_symbols)) = perf_file.simpleperf_symbol_tables() {
+        println!("Simpleperf symbol tables for the following files:");
+        for f in &simpleperf_file_symbols {
+            println!("  - {}", f.path);
+        }
+        println!();
+    }
 
     let mut event_record_map = HashMap::new();
     let mut user_record_map = HashMap::new();

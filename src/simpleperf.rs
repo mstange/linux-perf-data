@@ -1,5 +1,11 @@
 use std::collections::HashMap;
 
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+use linux_perf_event_reader::Endianness;
+use prost::Message;
+
+use crate::Error;
+
 pub struct SimplePerfEventType {
     pub name: String,
     pub type_: u64,
@@ -65,4 +71,90 @@ pub fn get_event_types(meta_info_map: &HashMap<&str, &str>) -> Option<Vec<Simple
         event_types.push(SimplePerfEventType::new(name, type_, config));
     }
     Some(event_types)
+}
+
+/// Used in the `SIMPLEPERF_FILE2` section.
+///
+/// Carries symbol tables that were obtained on the device.
+#[derive(Clone, PartialEq, Eq, ::prost_derive::Message)]
+pub struct SimpleperfFileRecord {
+    #[prost(string, tag = "1")]
+    pub path: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub r#type: u32,
+    #[prost(uint64, tag = "3")]
+    pub min_vaddr: u64,
+    #[prost(message, repeated, tag = "4")]
+    pub symbol: ::prost::alloc::vec::Vec<SimpleperfSymbol>,
+    #[prost(oneof = "SimpleperfTypeSpecificInfo", tags = "5, 6, 7")]
+    pub type_specific_msg: ::core::option::Option<SimpleperfTypeSpecificInfo>,
+}
+
+/// A single symbol, contained in the symbol table inside a [`SimpleperfFileRecord`].
+#[derive(Clone, PartialEq, Eq, ::prost_derive::Message)]
+pub struct SimpleperfSymbol {
+    #[prost(uint64, tag = "1")]
+    pub vaddr: u64,
+    #[prost(uint32, tag = "2")]
+    pub len: u32,
+    #[prost(string, tag = "3")]
+    pub name: ::prost::alloc::string::String,
+}
+
+/// DEX-specific info inside a [`SimpleperfFileRecord`].
+#[derive(Clone, PartialEq, Eq, ::prost_derive::Message)]
+pub struct SimpleperfDexFileInfo {
+    #[prost(uint64, repeated, tag = "1")]
+    pub dex_file_offset: ::prost::alloc::vec::Vec<u64>,
+}
+
+/// ELF object specific info inside a [`SimpleperfFileRecord`].
+#[derive(Clone, PartialEq, Eq, ::prost_derive::Message)]
+pub struct SimpleperfElfFileInfo {
+    #[prost(uint64, tag = "1")]
+    pub file_offset_of_min_vaddr: u64,
+}
+
+/// Kernel module specific info inside a [`SimpleperfFileRecord`].
+#[derive(Clone, PartialEq, Eq, ::prost_derive::Message)]
+pub struct SimpleperfKernelModuleInfo {
+    #[prost(uint64, tag = "1")]
+    pub memory_offset_of_min_vaddr: u64,
+}
+
+/// Type-specif info inside a [`SimpleperfFileRecord`].
+#[derive(Clone, PartialEq, Eq, ::prost_derive::Oneof)]
+pub enum SimpleperfTypeSpecificInfo {
+    /// Only when type = DSO_DEX_FILE
+    #[prost(message, tag = "5")]
+    SimpleperfDexFileInfo(SimpleperfDexFileInfo),
+    /// Only when type = DSO_ELF_FILE
+    #[prost(message, tag = "6")]
+    ElfFile(SimpleperfElfFileInfo),
+    /// Only when type = DSO_KERNEL_MODULE
+    #[prost(message, tag = "7")]
+    KernelModule(SimpleperfKernelModuleInfo),
+}
+
+pub fn parse_file2_section(
+    mut bytes: &[u8],
+    endian: Endianness,
+) -> Result<Vec<SimpleperfFileRecord>, Error> {
+    let mut files = Vec::new();
+    // `bytes` contains the sequence of encoded SimpleperfFileRecord.
+    // Each record is proceded by a u32 which is the length in bytes
+    // of the protobuf-encoded representation.
+    while !bytes.is_empty() {
+        let len = match endian {
+            Endianness::LittleEndian => bytes.read_u32::<LittleEndian>()?,
+            Endianness::BigEndian => bytes.read_u32::<BigEndian>()?,
+        };
+        let len = len as usize;
+        let file_data = bytes.get(..len).ok_or(Error::FeatureSectionTooSmall)?;
+        bytes = &bytes[len..];
+        let file = SimpleperfFileRecord::decode(file_data)
+            .map_err(Error::ProtobufParsingSimpleperfFileSection)?;
+        files.push(file);
+    }
+    Ok(files)
 }

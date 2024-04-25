@@ -62,6 +62,9 @@ mod thread_map;
 /// in our public API.
 pub use linux_perf_event_reader;
 
+/// This is a re-export of the `prost` crate. We use its types in our public API.
+pub use prost;
+
 pub use linux_perf_event_reader::Endianness;
 
 pub use dso_info::DsoInfo;
@@ -72,4 +75,8 @@ pub use features::{Feature, FeatureSet, FeatureSetIter};
 pub use file_reader::{PerfFileReader, PerfRecordIter};
 pub use perf_file::PerfFile;
 pub use record::{PerfFileRecord, RawUserRecord, UserRecord, UserRecordType};
+pub use simpleperf::{
+    SimpleperfDexFileInfo, SimpleperfElfFileInfo, SimpleperfFileRecord, SimpleperfKernelModuleInfo,
+    SimpleperfSymbol, SimpleperfTypeSpecificInfo,
+};
 pub use thread_map::ThreadMap;

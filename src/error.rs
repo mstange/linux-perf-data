@@ -43,6 +43,9 @@ pub enum Error {
     #[error("No event types found in the simpleperf meta info section")]
     NoEventTypesInSimpleperfMetaInfo,
 
+    #[error("Protobuf parsing error in Simpleperf file feature: {0}")]
+    ProtobufParsingSimpleperfFileSection(prost::DecodeError),
+
     #[error("The indicated string length wouldn't fit in the indicated section size")]
     StringLengthTooLong,
 

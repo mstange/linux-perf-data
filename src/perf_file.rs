@@ -189,6 +189,20 @@ impl PerfFile {
         }
     }
 
+    /// Symbol tables from Simpleperf.
+    ///
+    /// `perf.data` files from simpleperf come with a `FILE2` section which contains,
+    /// for each DSO that was hit by a stack frame, the symbol table from the file
+    /// as present on the device.
+    pub fn simpleperf_symbol_tables(
+        &self,
+    ) -> Result<Option<Vec<simpleperf::SimpleperfFileRecord>>, Error> {
+        match self.feature_section_data(Feature::SIMPLEPERF_FILE2) {
+            Some(section) => Ok(Some(simpleperf::parse_file2_section(section, self.endian)?)),
+            None => Ok(None),
+        }
+    }
+
     /// The names of the dynamic PMU types used in [`PerfEventType::DynamicPmu`](linux_perf_event_reader::PerfEventType::DynamicPmu).
     ///
     /// This mapping allows you to interpret the perf event type field of the perf event
