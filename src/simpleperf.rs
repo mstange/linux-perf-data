@@ -73,6 +73,17 @@ pub fn get_event_types(meta_info_map: &HashMap<&str, &str>) -> Option<Vec<Simple
     Some(event_types)
 }
 
+/// Constants used in [`SimpleperfFileRecord`]'s `type` property.
+pub mod simpleperf_dso_type {
+    pub const DSO_KERNEL: u32 = 0;
+    pub const DSO_KERNEL_MODULE: u32 = 1;
+    pub const DSO_ELF_FILE: u32 = 2;
+    /// For files containing dex files, like .vdex files.
+    pub const DSO_DEX_FILE: u32 = 3;
+    pub const DSO_SYMBOL_MAP_FILE: u32 = 4;
+    pub const DSO_UNKNOWN_FILE: u32 = 5;
+}
+
 /// Used in the `SIMPLEPERF_FILE2` section.
 ///
 /// Carries symbol tables that were obtained on the device.
@@ -80,6 +91,7 @@ pub fn get_event_types(meta_info_map: &HashMap<&str, &str>) -> Option<Vec<Simple
 pub struct SimpleperfFileRecord {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
+    /// Uses constants from [`simpleperf_dso_type`].
     #[prost(uint32, tag = "2")]
     pub r#type: u32,
     #[prost(uint64, tag = "3")]

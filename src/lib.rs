@@ -76,7 +76,7 @@ pub use file_reader::{PerfFileReader, PerfRecordIter};
 pub use perf_file::PerfFile;
 pub use record::{PerfFileRecord, RawUserRecord, UserRecord, UserRecordType};
 pub use simpleperf::{
-    SimpleperfDexFileInfo, SimpleperfElfFileInfo, SimpleperfFileRecord, SimpleperfKernelModuleInfo,
-    SimpleperfSymbol, SimpleperfTypeSpecificInfo,
+    simpleperf_dso_type, SimpleperfDexFileInfo, SimpleperfElfFileInfo, SimpleperfFileRecord,
+    SimpleperfKernelModuleInfo, SimpleperfSymbol, SimpleperfTypeSpecificInfo,
 };
 pub use thread_map::ThreadMap;
