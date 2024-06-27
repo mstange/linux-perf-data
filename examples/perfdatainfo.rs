@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use linux_perf_data::{PerfFileReader, PerfFileRecord};
+#[allow(unused)]
+use linux_perf_event_reader::RecordType;
 
 fn main() {
     let path = std::env::args()
@@ -19,6 +21,19 @@ fn main() {
         }
     };
 
+    if let Ok(Some(arch)) = perf_file.arch() {
+        println!("Arch: {arch}");
+    }
+    if let Ok(Some(cmdline)) = perf_file.cmdline() {
+        println!("CmdLine: {cmdline:?}");
+    }
+    if let Ok(Some(cpu_desc)) = perf_file.cpu_desc() {
+        println!("CPU Desc: {cpu_desc}");
+    }
+    if let Ok(Some(perf_version)) = perf_file.perf_version() {
+        println!("Perf version: {perf_version}");
+    }
+
     // Print the feature sections.
     let features = perf_file.features();
     let features: String = features
@@ -28,13 +43,25 @@ fn main() {
         .join(", ");
     println!("Features: {features}");
     println!();
+    if let Ok(Some(simpleperf_meta_info)) = perf_file.simpleperf_meta_info() {
+        println!("Simpleperf meta info:");
+        for (k, v) in simpleperf_meta_info {
+            println!("  {k}: {v}");
+        }
+        println!();
+    }
     if let Ok(Some(simpleperf_file_symbols)) = perf_file.simpleperf_symbol_tables() {
         println!("Simpleperf symbol tables for the following files:");
         for f in &simpleperf_file_symbols {
             println!("  - {}", f.path);
+            // println!("{f:#?}");
         }
         println!();
     }
+
+    // for event in perf_file.event_attributes() {
+    //     println!("Event: {event:#?}");
+    // }
 
     let mut event_record_map = HashMap::new();
     let mut user_record_map = HashMap::new();
@@ -49,11 +76,26 @@ fn main() {
                     .entry(record_type)
                     .or_insert(0) += 1;
                 match record.parse() {
-                    Ok(_parsed_record) => {
-                        // println!(
-                        //     "{:?} for event {}: {:?}",
-                        //     record_type, attr_index, parsed_record
-                        // );
+                    Ok(parsed_record) => {
+                        // let is_interesting = matches!(record_type, RecordType::FORK | RecordType::COMM | RecordType::MMAP| RecordType::MMAP2);
+                        let is_interesting = false;
+                        if !is_interesting {
+                            continue;
+                        }
+
+                        if let Some(timestamp) =
+                            record.common_data().ok().and_then(|cd| cd.timestamp)
+                        {
+                            println!(
+                                "{:?} at {} for event {}: {:?}",
+                                record_type, timestamp, attr_index, parsed_record
+                            );
+                        } else {
+                            println!(
+                                "{:?} for event {}: {:?}",
+                                record_type, attr_index, parsed_record
+                            );
+                        }
                     }
                     Err(e) => {
                         println!(
