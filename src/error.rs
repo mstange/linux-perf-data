@@ -46,6 +46,9 @@ pub enum Error {
     #[error("Protobuf parsing error in Simpleperf file feature: {0}")]
     ProtobufParsingSimpleperfFileSection(prost::DecodeError),
 
+    #[error("Parsing error in Simpleperf file v1 feature: {0}")]
+    ParsingSimpleperfFileV1Section(io::Error),
+
     #[error("The indicated string length wouldn't fit in the indicated section size")]
     StringLengthTooLong,
 

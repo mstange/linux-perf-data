@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 use linux_perf_event_reader::Endianness;
 use prost::Message;
 
@@ -84,7 +84,7 @@ pub mod simpleperf_dso_type {
     pub const DSO_UNKNOWN_FILE: u32 = 5;
 }
 
-/// Used in the `SIMPLEPERF_FILE2` section.
+/// Used in the `SIMPLEPERF_FILE` and `SIMPLEPERF_FILE2` section.
 ///
 /// Carries symbol tables that were obtained on the device.
 #[derive(Clone, PartialEq, Eq, ::prost_derive::Message)]
@@ -169,4 +169,134 @@ pub fn parse_file2_section(
         files.push(file);
     }
     Ok(files)
+}
+
+/// Parses the legacy `SIMPLEPERF_FILE` section. This section is emitted by
+/// "on-device simpleperf" on Android 11 and 12 at least (not on 14).
+///
+/// "On-device simpleperf" is used whenever you profile a non-debuggable app,
+/// unless you have a rooted phone and manually run /data/local/tmp/simpleperf
+/// as root.
+pub fn parse_file_section(
+    mut bytes: &[u8],
+    endian: Endianness,
+) -> Result<Vec<SimpleperfFileRecord>, Error> {
+    let mut files = Vec::new();
+    // `bytes` contains the sequence of encoded SimpleperfFileRecord.
+    // Each record is proceded by a u32 which is the length in bytes
+    // of the manually-encoded representation.
+    while !bytes.is_empty() {
+        let len = match endian {
+            Endianness::LittleEndian => bytes.read_u32::<LittleEndian>()?,
+            Endianness::BigEndian => bytes.read_u32::<BigEndian>()?,
+        };
+        let len = len as usize;
+        let file_data = bytes.get(..len).ok_or(Error::FeatureSectionTooSmall)?;
+        bytes = &bytes[len..];
+        let file_result = match endian {
+            Endianness::LittleEndian => SimpleperfFileRecord::decode_v1::<LittleEndian>(file_data),
+            Endianness::BigEndian => SimpleperfFileRecord::decode_v1::<BigEndian>(file_data),
+        };
+        let file = file_result.map_err(Error::ParsingSimpleperfFileV1Section)?;
+        files.push(file);
+    }
+    Ok(files)
+}
+
+impl SimpleperfFileRecord {
+    pub fn decode_v1<T: ByteOrder>(mut data: &[u8]) -> Result<Self, std::io::Error> {
+        let path = data.read_nul_terminated_str()?.to_owned();
+        let file_type = data.read_u32::<T>()?;
+        if file_type > simpleperf_dso_type::DSO_UNKNOWN_FILE {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unknown file type for {path} in file feature section: {file_type}"),
+            ));
+        }
+        let min_vaddr = data.read_u64::<T>()?;
+        let symbol_count = data.read_u32::<T>()? as usize;
+        if symbol_count > data.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Unreasonable symbol count for {path} in file feature section: {symbol_count}"
+                ),
+            ));
+        }
+        let mut symbols = Vec::with_capacity(symbol_count);
+        for _ in 0..symbol_count {
+            let vaddr = data.read_u64::<T>()?;
+            let len = data.read_u32::<T>()?;
+            let name = data.read_nul_terminated_str()?.to_owned();
+            symbols.push(SimpleperfSymbol { vaddr, len, name });
+        }
+        let type_specific_msg = match file_type {
+            simpleperf_dso_type::DSO_DEX_FILE => {
+                let offset_count = data.read_u32::<T>()? as usize;
+                if offset_count > data.len() {
+                    return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Unreasonable symbol count for {path} in file feature section: {offset_count}"),
+                ));
+                }
+                let mut dex_file_offset = Vec::with_capacity(offset_count);
+                for _ in 0..offset_count {
+                    dex_file_offset.push(data.read_u64::<T>()?);
+                }
+                Some(SimpleperfTypeSpecificInfo::SimpleperfDexFileInfo(
+                    SimpleperfDexFileInfo { dex_file_offset },
+                ))
+            }
+            simpleperf_dso_type::DSO_ELF_FILE => {
+                let file_offset_of_min_vaddr = if data.is_empty() {
+                    u64::MAX
+                } else {
+                    data.read_u64::<T>()?
+                };
+                Some(SimpleperfTypeSpecificInfo::ElfFile(SimpleperfElfFileInfo {
+                    file_offset_of_min_vaddr,
+                }))
+            }
+            simpleperf_dso_type::DSO_KERNEL_MODULE => {
+                let memory_offset_of_min_vaddr = if data.is_empty() {
+                    u64::MAX
+                } else {
+                    data.read_u64::<T>()?
+                };
+                Some(SimpleperfTypeSpecificInfo::KernelModule(
+                    SimpleperfKernelModuleInfo {
+                        memory_offset_of_min_vaddr,
+                    },
+                ))
+            }
+            _ => None,
+        };
+
+        Ok(Self {
+            path,
+            r#type: file_type,
+            min_vaddr,
+            symbol: symbols,
+            type_specific_msg,
+        })
+    }
+}
+
+trait SliceReadStringExt<'a> {
+    fn read_nul_terminated_str(&mut self) -> std::io::Result<&'a str>;
+}
+
+impl<'a> SliceReadStringExt<'a> for &'a [u8] {
+    fn read_nul_terminated_str(&mut self) -> std::io::Result<&'a str> {
+        let Some(len) = memchr::memchr(0, self) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Nul terminator not found",
+            ));
+        };
+        let s = std::str::from_utf8(&self[..len])
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        *self = &self[(len + 1)..];
+        Ok(s)
+    }
 }

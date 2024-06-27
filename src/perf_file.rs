@@ -197,10 +197,13 @@ impl PerfFile {
     pub fn simpleperf_symbol_tables(
         &self,
     ) -> Result<Option<Vec<simpleperf::SimpleperfFileRecord>>, Error> {
-        match self.feature_section_data(Feature::SIMPLEPERF_FILE2) {
-            Some(section) => Ok(Some(simpleperf::parse_file2_section(section, self.endian)?)),
-            None => Ok(None),
+        if let Some(section) = self.feature_section_data(Feature::SIMPLEPERF_FILE2) {
+            return Ok(Some(simpleperf::parse_file2_section(section, self.endian)?));
         }
+        if let Some(section) = self.feature_section_data(Feature::SIMPLEPERF_FILE) {
+            return Ok(Some(simpleperf::parse_file_section(section, self.endian)?));
+        }
+        Ok(None)
     }
 
     /// The names of the dynamic PMU types used in [`PerfEventType::DynamicPmu`](linux_perf_event_reader::PerfEventType::DynamicPmu).
