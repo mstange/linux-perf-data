@@ -24,7 +24,7 @@ fn detect_build_id_len(build_id_bytes: &[u8]) -> u8 {
 #[derive(Debug, Clone)]
 pub struct BuildIdEvent {
     pub header: PerfEventHeader,
-    pub pid: i32,
+    pub _pid: i32,
     pub build_id: Vec<u8>,
     pub file_path: Vec<u8>,
 }
@@ -32,7 +32,7 @@ pub struct BuildIdEvent {
 impl BuildIdEvent {
     pub fn parse<R: Read, T: ByteOrder>(mut reader: R) -> Result<Self, std::io::Error> {
         let header = PerfEventHeader::parse::<_, T>(&mut reader)?;
-        let pid = reader.read_i32::<T>()?;
+        let _pid = reader.read_i32::<T>()?;
         let mut build_id_bytes = [0; 24];
         reader.read_exact(&mut build_id_bytes)?;
 
@@ -63,7 +63,7 @@ impl BuildIdEvent {
 
         Ok(Self {
             header,
-            pid,
+            _pid,
             build_id,
             file_path,
         })

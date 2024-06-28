@@ -16,6 +16,7 @@ use super::section::PerfFileSection;
 pub struct PerfHeader {
     pub magic: [u8; 8],
     /// size of the header
+    #[allow(dead_code)]
     pub header_size: u64,
     /// size of an attribute in attrs
     pub attr_size: u64,
