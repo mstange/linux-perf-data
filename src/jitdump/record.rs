@@ -78,7 +78,7 @@ pub struct JitDumpRawRecord<'a> {
     pub body: RawData<'a>,
 }
 
-impl<'a> JitDumpRawRecord<'a> {
+impl JitDumpRawRecord<'_> {
     pub fn parse(&self) -> Result<JitDumpRecord, std::io::Error> {
         match self.record_type {
             JitDumpRecordType::JIT_CODE_LOAD => {

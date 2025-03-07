@@ -62,7 +62,7 @@ pub struct ThreadMapEntry<'a> {
     pub name: RawData<'a>,
 }
 
-impl<'a> fmt::Debug for ThreadMapEntry<'a> {
+impl fmt::Debug for ThreadMapEntry<'_> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use std::str;
 
