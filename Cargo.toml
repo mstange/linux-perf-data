@@ -23,6 +23,6 @@ prost = { version = "0.13", default-features = false, features = ["std"] }
 prost-derive = "0.13"
 
 [dev-dependencies]
-yaxpeax-arch = { version = "0.2.7", default-features = false }
-yaxpeax-x86 = { version = "1.1.4", default-features = false, features = ["std", "fmt"] }
-yaxpeax-arm = { version = "0.2.3", default-features = false, features = ["std"] }
+yaxpeax-arch = { version = "0.3", default-features = false }
+yaxpeax-x86 = { version = "2", default-features = false, features = ["std", "fmt"] }
+yaxpeax-arm = { version = "0.3", default-features = false, features = ["std"] }
