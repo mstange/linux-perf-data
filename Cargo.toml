@@ -15,12 +15,12 @@ exclude = ["/.github", "/.vscode", "/tests"]
 [dependencies]
 byteorder = "1.4.3"
 memchr = "2.4.1"
-thiserror = "1.0.30"
+thiserror = "2"
 linux-perf-event-reader = "0.10.0"
 # linux-perf-event-reader = { path = "../linux-perf-event-reader" }
 linear-map = "1.2.0"
-prost = { version = "0.12.4", default-features = false, features = ["std"] }
-prost-derive = "0.12.4"
+prost = { version = "0.13", default-features = false, features = ["std"] }
+prost-derive = "0.13"
 
 [dev-dependencies]
 yaxpeax-arch = { version = "0.2.7", default-features = false }
