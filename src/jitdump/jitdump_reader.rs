@@ -19,6 +19,8 @@ pub struct JitDumpReader<R: Read> {
     reader: BufferedReader<R>,
     header: JitDumpHeader,
     endian: Endianness,
+    /// None if the reader is currently pointing to the start of the header of the next entry.
+    /// Some() if the reader is currently pointing after the header but before the body of an entry.
     pending_record_header: Option<JitDumpRecordHeader>,
     current_record_start_offset: u64,
 }
