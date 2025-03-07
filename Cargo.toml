@@ -1,6 +1,6 @@
 [package]
 name = "linux-perf-data"
-version = "0.10.2"
+version = "0.11.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
