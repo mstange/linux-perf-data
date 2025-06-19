@@ -10,6 +10,13 @@ where
     serializer.serialize_str(&format!("0x{:x}", addr))
 }
 
+fn read_file_contents(file_path: &str) -> Option<String> {
+    match std::fs::read_to_string(file_path) {
+        Ok(contents) => Some(contents),
+        Err(_) => None, // File doesn't exist or can't be read
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DebugEntry {
     #[serde(serialize_with = "serialize_address_as_hex")]
@@ -17,6 +24,18 @@ struct DebugEntry {
     file_path: String,
     line: u32,
     column: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SourceFile {
+    path: String,
+    contents: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OutputData {
+    functions: Vec<FunctionInfo>,
+    source_files: Vec<SourceFile>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,6 +82,7 @@ fn main() {
     // Store debug info by code address
     let mut debug_info_map: HashMap<u64, Vec<DebugEntry>> = HashMap::new();
     let mut functions: Vec<FunctionInfo> = Vec::new();
+    let mut source_files: HashMap<String, Option<String>> = HashMap::new();
 
     while let Ok(Some(record)) = reader.next_record() {
         let timestamp = record.timestamp;
@@ -70,11 +90,21 @@ fn main() {
             JitDumpRecord::CodeDebugInfo(debug_record) => {
                 let debug_entries: Vec<DebugEntry> = debug_record.entries
                     .iter()
-                    .map(|entry| DebugEntry {
-                        code_addr: entry.code_addr,
-                        file_path: String::from_utf8_lossy(&entry.file_path.as_slice()).to_string(),
-                        line: entry.line,
-                        column: entry.column,
+                    .map(|entry| {
+                        let file_path = String::from_utf8_lossy(&entry.file_path.as_slice()).to_string();
+                        
+                        // Track unique source files
+                        if !source_files.contains_key(&file_path) {
+                            let file_contents = read_file_contents(&file_path);
+                            source_files.insert(file_path.clone(), file_contents);
+                        }
+                        
+                        DebugEntry {
+                            code_addr: entry.code_addr,
+                            file_path,
+                            line: entry.line,
+                            column: entry.column,
+                        }
                     })
                     .collect();
                 
@@ -122,8 +152,20 @@ fn main() {
         std::process::exit(1);
     }
 
+    // Convert source files HashMap to Vec<SourceFile>
+    let source_files_vec: Vec<SourceFile> = source_files
+        .into_iter()
+        .map(|(path, contents)| SourceFile { path, contents })
+        .collect();
+
+    // Create output data structure
+    let output_data = OutputData {
+        functions,
+        source_files: source_files_vec,
+    };
+
     // Output as JSON
-    match serde_json::to_string_pretty(&functions) {
+    match serde_json::to_string_pretty(&output_data) {
         Ok(json) => println!("{}", json),
         Err(e) => {
             eprintln!("Failed to serialize to JSON: {}", e);
