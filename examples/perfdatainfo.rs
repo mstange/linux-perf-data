@@ -33,6 +33,12 @@ fn main() {
     if let Ok(Some(perf_version)) = perf_file.perf_version() {
         println!("Perf version: {perf_version}");
     }
+    if let Ok(Some(frequency)) = perf_file.clock_frequency() {
+        println!("Clock frequency: {frequency} ns per tick");
+    }
+    if let Ok(Some(clock_data)) = perf_file.clock_data() {
+        println!("Clock data: {clock_data:?}");
+    }
 
     // Print the feature sections.
     let features = perf_file.features();
