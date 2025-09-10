@@ -280,3 +280,38 @@ impl PmuMappings {
         Ok(Self(vec.into_iter().collect()))
     }
 }
+
+/// The clock data header contains information about the clock used to
+/// record timestamps in the perf.data file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClockData {
+    /// Clock ID used for timestamps
+    pub clockid: u32,
+    /// Wall clock time in nanoseconds since Unix epoch.
+    pub wall_clock_ns: u64,
+    /// Clock ID time in nanoseconds at the same instant as `wall_clock_ns`.
+    pub clockid_time_ns: u64,
+}
+
+impl ClockData {
+    pub const STRUCT_SIZE: usize = 4 + 4 + 8 + 8;
+
+    pub fn parse<R: Read, T: ByteOrder>(mut data: R) -> Result<Self, std::io::Error> {
+        let version = data.read_u32::<T>()?;
+        if version != 1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Unsupported clock data version: {version}"),
+            ));
+        }
+        let clockid = data.read_u32::<T>()?;
+        let wall_clock_ns = data.read_u64::<T>()?;
+        let clockid_time_ns = data.read_u64::<T>()?;
+
+        Ok(Self {
+            clockid,
+            wall_clock_ns,
+            clockid_time_ns,
+        })
+    }
+}

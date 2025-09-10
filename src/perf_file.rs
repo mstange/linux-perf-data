@@ -9,7 +9,9 @@ use super::build_id_event::BuildIdEvent;
 use super::dso_info::DsoInfo;
 use super::dso_key::DsoKey;
 use super::error::Error;
-use super::feature_sections::{AttributeDescription, NrCpus, PmuMappings, SampleTimeRange};
+use super::feature_sections::{
+    AttributeDescription, ClockData, NrCpus, PmuMappings, SampleTimeRange,
+};
 use super::features::{Feature, FeatureSet};
 use super::simpleperf;
 
@@ -179,6 +181,36 @@ impl PerfFile {
             Endianness::BigEndian => u64::from_be_bytes(data),
         };
         Ok(Some(mem))
+    }
+
+    /// The clock frequency for the clock in [`clock_data`] expressed as ns per tick.
+    pub fn clock_frequency(&self) -> Result<Option<u64>, Error> {
+        let data = match self.feature_section_data(Feature::CLOCKID) {
+            Some(data) => data,
+            None => return Ok(None),
+        };
+        if data.len() < 8 {
+            return Err(Error::FeatureSectionTooSmall);
+        }
+        let b = data;
+        let data = [b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]];
+        let mem = match self.endian {
+            Endianness::LittleEndian => u64::from_le_bytes(data),
+            Endianness::BigEndian => u64::from_be_bytes(data),
+        };
+        Ok(Some(mem))
+    }
+
+    /// A structure containing information about the clock
+    pub fn clock_data(&self) -> Result<Option<ClockData>, Error> {
+        self.feature_section_data(Feature::CLOCK_DATA)
+            .map(|section| {
+                Ok(match self.endian {
+                    Endianness::LittleEndian => ClockData::parse::<_, LittleEndian>(section),
+                    Endianness::BigEndian => ClockData::parse::<_, BigEndian>(section),
+                }?)
+            })
+            .transpose()
     }
 
     /// The meta info map, if this is a Simpleperf profile.
