@@ -175,7 +175,7 @@ impl<'a> JitCodeDebugInfoRecord<'a> {
         Ok(Self { code_addr, entries })
     }
 
-    pub fn lookup(&self, addr: u64) -> Option<&JitCodeDebugInfoEntry> {
+    pub fn lookup(&self, addr: u64) -> Option<&JitCodeDebugInfoEntry<'a>> {
         let index = match self
             .entries
             .binary_search_by_key(&addr, |entry| entry.code_addr)
