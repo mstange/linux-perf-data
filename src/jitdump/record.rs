@@ -78,8 +78,8 @@ pub struct JitDumpRawRecord<'a> {
     pub body: RawData<'a>,
 }
 
-impl JitDumpRawRecord<'_> {
-    pub fn parse(&self) -> Result<JitDumpRecord, std::io::Error> {
+impl<'a> JitDumpRawRecord<'a> {
+    pub fn parse(&self) -> Result<JitDumpRecord<'a>, std::io::Error> {
         match self.record_type {
             JitDumpRecordType::JIT_CODE_LOAD => {
                 let record = JitCodeLoadRecord::parse(self.endian, self.body)?;

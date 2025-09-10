@@ -44,7 +44,7 @@ impl<R: Read> BufferedReader<R> {
         }
     }
 
-    pub fn consume_data(&mut self, len: usize) -> Result<Option<RawData>, std::io::Error> {
+    pub fn consume_data(&mut self, len: usize) -> Result<Option<RawData<'_>>, std::io::Error> {
         let available_data_len = self.available_data_len();
         if available_data_len < len {
             let extra_needed_data = len - available_data_len;

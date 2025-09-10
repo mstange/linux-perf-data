@@ -112,7 +112,7 @@ impl<R: Read> JitDumpReader<R> {
     /// When operating on partial files, this will return `Ok(None)` if the entire record is
     /// not available yet. Future calls to `next_record` may return `Ok(Some)` if the
     /// data has become available in the meantime, because they will call `read` on `R` again.
-    pub fn next_record(&mut self) -> Result<Option<JitDumpRawRecord>, std::io::Error> {
+    pub fn next_record(&mut self) -> Result<Option<JitDumpRawRecord<'_>>, std::io::Error> {
         let record_size = match self.next_record_header()? {
             Some(header) => header.total_size,
             None => return Ok(None),

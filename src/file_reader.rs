@@ -229,7 +229,7 @@ impl<R: Read> PerfRecordIter<R> {
     pub fn next_record(
         &mut self,
         _perf_file: &mut PerfFile,
-    ) -> Result<Option<PerfFileRecord>, Error> {
+    ) -> Result<Option<PerfFileRecord<'_>>, Error> {
         if !self.sorter.has_more() {
             self.read_next_round()?;
         }
@@ -327,7 +327,7 @@ impl<R: Read> PerfRecordIter<R> {
     }
 
     /// Converts pending_record into an RawRecord which references the data in self.current_event_body.
-    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> PerfFileRecord {
+    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> PerfFileRecord<'_> {
         let PendingRecord {
             record_type,
             misc,
