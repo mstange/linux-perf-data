@@ -19,8 +19,8 @@ thiserror = "2"
 linux-perf-event-reader = "0.10.0"
 # linux-perf-event-reader = { path = "../linux-perf-event-reader" }
 linear-map = "1.2.0"
-prost = { version = "0.13", default-features = false, features = ["std"] }
-prost-derive = "0.13"
+prost = { version = "0.14", default-features = false, features = ["std"] }
+prost-derive = "0.14"
 
 [dev-dependencies]
 yaxpeax-arch = { version = "0.3", default-features = false }
