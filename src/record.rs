@@ -2,6 +2,7 @@ use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use linux_perf_event_reader::RawEventRecord;
 use linux_perf_event_reader::{Endianness, RawData, RecordType};
 
+use crate::auxtrace::Auxtrace;
 use crate::constants::*;
 use crate::thread_map::ThreadMap;
 
@@ -26,6 +27,7 @@ pub enum PerfFileRecord<'a> {
 #[non_exhaustive]
 pub enum UserRecord<'a> {
     ThreadMap(ThreadMap<'a>),
+    Auxtrace(Auxtrace<'a>),
     Raw(RawUserRecord<'a>),
 }
 
@@ -148,7 +150,7 @@ impl<'a> RawUserRecord<'a> {
             // UserRecordType::PERF_FINISHED_ROUND => {},
             // UserRecordType::PERF_ID_INDEX => {},
             // UserRecordType::PERF_AUXTRACE_INFO => {},
-            // UserRecordType::PERF_AUXTRACE => {},
+            UserRecordType::PERF_AUXTRACE => UserRecord::Auxtrace(Auxtrace::parse::<T>(self.data)?),
             // UserRecordType::PERF_AUXTRACE_ERROR => {},
             UserRecordType::PERF_THREAD_MAP => {
                 UserRecord::ThreadMap(ThreadMap::parse::<T>(self.data)?)

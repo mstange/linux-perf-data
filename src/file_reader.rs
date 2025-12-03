@@ -1,4 +1,4 @@
-use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 use linear_map::LinearMap;
 use linux_perf_event_reader::{
     get_record_id, get_record_identifier, get_record_timestamp, AttrFlags, Endianness,
@@ -219,7 +219,7 @@ pub struct PerfRecordIter<R: Read> {
     buffers_for_recycling: VecDeque<Vec<u8>>,
 }
 
-impl<R: Read> PerfRecordIter<R> {
+impl<R: Read + Seek> PerfRecordIter<R> {
     /// Iterates the records in this file. The records are emitted in the
     /// correct order, i.e. sorted by time.
     ///
@@ -256,24 +256,34 @@ impl<R: Read> PerfRecordIter<R> {
         while self.read_offset < self.record_data_len {
             let offset = self.read_offset;
             let header = PerfEventHeader::parse::<_, T>(&mut self.reader)?;
-            let size = header.size as usize;
+            let mut size = header.size as usize;
             if size < PerfEventHeader::STRUCT_SIZE {
                 return Err(Error::InvalidPerfEventSize);
             }
             self.read_offset += u64::from(header.size);
 
-            if UserRecordType::try_from(RecordType(header.type_))
-                == Some(UserRecordType::PERF_FINISHED_ROUND)
-            {
-                self.sorter.finish_round();
-                if self.sorter.has_more() {
-                    // The sorter is non-empty. We're done.
-                    return Ok(());
-                }
+            match UserRecordType::try_from(RecordType(header.type_)) {
+                Some(UserRecordType::PERF_FINISHED_ROUND) => {
+                    self.sorter.finish_round();
+                    if self.sorter.has_more() {
+                        // The sorter is non-empty. We're done.
+                        return Ok(());
+                    }
 
-                // Keep going so that we never exit the loop with sorter
-                // being empty, unless we've truly run out of data to read.
-                continue;
+                    // Keep going so that we never exit the loop with sorter
+                    // being empty, unless we've truly run out of data to read.
+                    continue;
+                }
+                Some(UserRecordType::PERF_AUXTRACE) => {
+                    let cur_pos = self.reader.stream_position()?;
+                    // Peek next 8 byte for aux size
+                    let aux_size = self.reader.read_u64::<T>()?;
+                    size += aux_size as usize;
+                    self.read_offset += aux_size;
+                    // Restore cursor
+                    self.reader.seek(SeekFrom::Start(cur_pos))?;
+                }
+                _ => {}
             }
 
             let event_body_len = size - PerfEventHeader::STRUCT_SIZE;
