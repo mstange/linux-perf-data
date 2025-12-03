@@ -4,6 +4,7 @@ use linux_perf_event_reader::RawData;
 /// Auxtrace data record.
 ///
 /// This is usually used with Intel PT, which records the pure Intel PT data.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Auxtrace<'a> {
     /// Size of `aux_data`
     pub size: u64,
