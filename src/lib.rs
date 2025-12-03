@@ -62,6 +62,7 @@
 //! # }
 //! ```
 
+mod auxtrace;
 mod build_id_event;
 mod constants;
 #[cfg(feature = "zstd")]
@@ -90,6 +91,7 @@ pub use prost;
 
 pub use linux_perf_event_reader::Endianness;
 
+pub use auxtrace::Auxtrace;
 pub use dso_info::DsoInfo;
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
