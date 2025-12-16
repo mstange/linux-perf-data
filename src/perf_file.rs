@@ -10,7 +10,7 @@ use super::dso_info::DsoInfo;
 use super::dso_key::DsoKey;
 use super::error::Error;
 use super::feature_sections::{
-    AttributeDescription, ClockData, NrCpus, PmuMappings, SampleTimeRange,
+    AttributeDescription, ClockData, CompressionInfo, NrCpus, PmuMappings, SampleTimeRange,
 };
 use super::features::{Feature, FeatureSet};
 use super::simpleperf;
@@ -208,6 +208,18 @@ impl PerfFile {
                 Ok(match self.endian {
                     Endianness::LittleEndian => ClockData::parse::<_, LittleEndian>(section),
                     Endianness::BigEndian => ClockData::parse::<_, BigEndian>(section),
+                }?)
+            })
+            .transpose()
+    }
+
+    /// Information about compression used in the perf.data file
+    pub fn compression_info(&self) -> Result<Option<CompressionInfo>, Error> {
+        self.feature_section_data(Feature::COMPRESSED)
+            .map(|section| {
+                Ok(match self.endian {
+                    Endianness::LittleEndian => CompressionInfo::parse::<_, LittleEndian>(section),
+                    Endianness::BigEndian => CompressionInfo::parse::<_, BigEndian>(section),
                 }?)
             })
             .transpose()

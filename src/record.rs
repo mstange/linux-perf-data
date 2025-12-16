@@ -55,6 +55,7 @@ impl UserRecordType {
     pub const PERF_TIME_CONV: Self = Self(RecordType(PERF_RECORD_TIME_CONV));
     pub const PERF_HEADER_FEATURE: Self = Self(RecordType(PERF_RECORD_HEADER_FEATURE));
     pub const PERF_COMPRESSED: Self = Self(RecordType(PERF_RECORD_COMPRESSED));
+    pub const PERF_COMPRESSED2: Self = Self(RecordType(PERF_RECORD_COMPRESSED2));
 
     pub const SIMPLEPERF_KERNEL_SYMBOL: Self = Self(RecordType(SIMPLE_PERF_RECORD_KERNEL_SYMBOL));
     pub const SIMPLEPERF_DSO: Self = Self(RecordType(SIMPLE_PERF_RECORD_DSO));
@@ -107,6 +108,7 @@ impl std::fmt::Debug for UserRecordType {
             Self::PERF_TIME_CONV => "PERF_TIME_CONV".fmt(f),
             Self::PERF_HEADER_FEATURE => "PERF_HEADER_FEATURE".fmt(f),
             Self::PERF_COMPRESSED => "PERF_COMPRESSED".fmt(f),
+            Self::PERF_COMPRESSED2 => "PERF_COMPRESSED2".fmt(f),
             Self::SIMPLEPERF_KERNEL_SYMBOL => "SIMPLEPERF_KERNEL_SYMBOL".fmt(f),
             Self::SIMPLEPERF_DSO => "SIMPLEPERF_DSO".fmt(f),
             Self::SIMPLEPERF_SYMBOL => "SIMPLEPERF_SYMBOL".fmt(f),

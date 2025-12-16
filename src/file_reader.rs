@@ -9,6 +9,9 @@ use linux_perf_event_reader::{
 use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
+#[cfg(feature = "zstd")]
+use crate::decompression::ZstdDecompressor;
+
 use super::error::{Error, ReadError};
 use super::feature_sections::AttributeDescription;
 use super::features::Feature;
@@ -204,6 +207,8 @@ impl<C: Read + Seek> PerfFileReader<C> {
             buffers_for_recycling: VecDeque::new(),
             current_event_body: Vec::new(),
             pending_first_record: None,
+            #[cfg(feature = "zstd")]
+            zstd_decompressor: ZstdDecompressor::new(),
         };
 
         Ok(Self {
@@ -374,6 +379,8 @@ impl<R: Read> PerfFileReader<R> {
             buffers_for_recycling: VecDeque::new(),
             current_event_body: Vec::new(),
             pending_first_record,
+            #[cfg(feature = "zstd")]
+            zstd_decompressor: ZstdDecompressor::new(),
         };
 
         Ok(Self {
@@ -399,6 +406,9 @@ pub struct PerfRecordIter<R: Read> {
     buffers_for_recycling: VecDeque<Vec<u8>>,
     /// For pipe mode: the first non-metadata record that was read during initialization
     pending_first_record: Option<(PerfEventHeader, Vec<u8>)>,
+    /// Zstd decompressor for handling COMPRESSED records
+    #[cfg(feature = "zstd")]
+    zstd_decompressor: ZstdDecompressor,
 }
 
 impl<R: Read> PerfRecordIter<R> {
@@ -467,9 +477,9 @@ impl<R: Read> PerfRecordIter<R> {
             }
             self.read_offset += u64::from(header.size);
 
-            if UserRecordType::try_from(RecordType(header.type_))
-                == Some(UserRecordType::PERF_FINISHED_ROUND)
-            {
+            let user_record_type = UserRecordType::try_from(RecordType(header.type_));
+
+            if user_record_type == Some(UserRecordType::PERF_FINISHED_ROUND) {
                 self.sorter.finish_round();
                 if self.sorter.has_more() {
                     // The sorter is non-empty. We're done.
@@ -484,7 +494,6 @@ impl<R: Read> PerfRecordIter<R> {
             let event_body_len = size - PerfEventHeader::STRUCT_SIZE;
             let mut buffer = self.buffers_for_recycling.pop_front().unwrap_or_default();
             buffer.resize(event_body_len, 0);
-
             // Try to read the event body. For pipe mode, EOF here also means end of stream.
             match self.reader.read_exact(&mut buffer) {
                 Ok(()) => {}
@@ -496,6 +505,28 @@ impl<R: Read> PerfRecordIter<R> {
                         break;
                     }
                     return Err(ReadError::PerfEventData.into());
+                }
+            }
+
+            if user_record_type == Some(UserRecordType::PERF_COMPRESSED) {
+                // PERF_COMPRESSED is the old format, not yet implemented
+                return Err(Error::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "PERF_COMPRESSED (type 81) is not supported yet, only PERF_COMPRESSED2 (type 83)",
+                )));
+            }
+
+            if user_record_type == Some(UserRecordType::PERF_COMPRESSED2) {
+                #[cfg(not(feature = "zstd"))]
+                {
+                    return Err(Error::IoError(std::io::Error::new(std::io::ErrorKind::Unsupported,
+                        "Compression support is not enabled. Please rebuild with the 'zstd' feature flag.",
+                    )));
+                }
+                #[cfg(feature = "zstd")]
+                {
+                    self.decompress_and_process_compressed2::<T>(&buffer)?;
+                    continue;
                 }
             }
 
@@ -550,7 +581,64 @@ impl<R: Read> PerfRecordIter<R> {
             attr_index,
         };
         self.sorter.insert_unordered(sort_key, pending_record);
+        Ok(())
+    }
 
+    /// Decompresses a PERF_RECORD_COMPRESSED2 record and processes its sub-records.
+    #[cfg(feature = "zstd")]
+    fn decompress_and_process_compressed2<T: ByteOrder>(
+        &mut self,
+        buffer: &[u8],
+    ) -> Result<(), Error> {
+        if buffer.len() < 8 {
+            return Err(ReadError::PerfEventData.into());
+        }
+        let data_size = T::read_u64(&buffer[0..8]) as usize;
+        if data_size > buffer.len() - 8 {
+            return Err(ReadError::PerfEventData.into());
+        }
+        let compressed_data = &buffer[8..8 + data_size];
+
+        let decompressed = self.zstd_decompressor.decompress(compressed_data)?;
+
+        // Parse the decompressed data as a sequence of perf records
+        let mut cursor = Cursor::new(&decompressed[..]);
+        let mut offset = 0u64;
+
+        while (cursor.position() as usize) < decompressed.len() {
+            let header_start = cursor.position() as usize;
+            // Check if we have enough bytes for a header
+            let remaining = decompressed.len() - header_start;
+            if remaining < PerfEventHeader::STRUCT_SIZE {
+                self.zstd_decompressor
+                    .save_partial_record(&decompressed[header_start..]);
+                break;
+            }
+
+            let sub_header = PerfEventHeader::parse::<_, T>(&mut cursor)?;
+            let sub_size = sub_header.size as usize;
+            if sub_size < PerfEventHeader::STRUCT_SIZE {
+                return Err(Error::InvalidPerfEventSize);
+            }
+
+            let sub_event_body_len = sub_size - PerfEventHeader::STRUCT_SIZE;
+            // Check if we have enough bytes for the sub-record body
+            let remaining_after_header = decompressed.len() - cursor.position() as usize;
+            if sub_event_body_len > remaining_after_header {
+                self.zstd_decompressor
+                    .save_partial_record(&decompressed[header_start..]);
+                break;
+            }
+
+            let mut sub_buffer = self.buffers_for_recycling.pop_front().unwrap_or_default();
+            sub_buffer.resize(sub_event_body_len, 0);
+            cursor
+                .read_exact(&mut sub_buffer)
+                .map_err(|_| ReadError::PerfEventData)?;
+
+            self.process_record::<T>(sub_header, sub_buffer, offset)?;
+            offset += sub_size as u64;
+        }
         Ok(())
     }
 
