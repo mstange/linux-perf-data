@@ -64,6 +64,8 @@
 
 mod build_id_event;
 mod constants;
+#[cfg(feature = "zstd")]
+mod decompression;
 mod dso_info;
 mod dso_key;
 mod error;
@@ -91,7 +93,7 @@ pub use linux_perf_event_reader::Endianness;
 pub use dso_info::DsoInfo;
 pub use dso_key::DsoKey;
 pub use error::{Error, ReadError};
-pub use feature_sections::{AttributeDescription, NrCpus, SampleTimeRange};
+pub use feature_sections::{AttributeDescription, CompressionInfo, NrCpus, SampleTimeRange};
 pub use features::{Feature, FeatureSet, FeatureSetIter};
 pub use file_reader::{PerfFileReader, PerfRecordIter};
 pub use perf_file::PerfFile;
