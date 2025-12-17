@@ -1,8 +1,9 @@
-use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 use linux_perf_event_reader::RawEventRecord;
-use linux_perf_event_reader::{Endianness, RawData, RecordType};
+use linux_perf_event_reader::{Endianness, PerfEventAttr, RawData, RecordType};
 
 use crate::constants::*;
+use crate::features::Feature;
 use crate::thread_map::ThreadMap;
 
 /// A record from a perf.data file's data stream.
@@ -26,6 +27,8 @@ pub enum PerfFileRecord<'a> {
 #[non_exhaustive]
 pub enum UserRecord<'a> {
     ThreadMap(ThreadMap<'a>),
+    HeaderAttr(HeaderAttr),
+    HeaderFeature(HeaderFeature),
     Raw(RawUserRecord<'a>),
 }
 
@@ -141,7 +144,15 @@ impl<'a> RawUserRecord<'a> {
         let record_type = self.record_type;
 
         let record = match record_type {
-            // UserRecordType::PERF_HEADER_ATTR => {},
+            UserRecordType::PERF_HEADER_ATTR => {
+                UserRecord::HeaderAttr(HeaderAttr::parse::<T>(self.data)?)
+            }
+            UserRecordType::PERF_THREAD_MAP => {
+                UserRecord::ThreadMap(ThreadMap::parse::<T>(self.data)?)
+            }
+            UserRecordType::PERF_HEADER_FEATURE => {
+                UserRecord::HeaderFeature(HeaderFeature::parse::<T>(self.data)?)
+            }
             // UserRecordType::PERF_HEADER_EVENT_TYPE => {},
             // UserRecordType::PERF_HEADER_TRACING_DATA => {},
             // UserRecordType::PERF_HEADER_BUILD_ID => {},
@@ -150,16 +161,12 @@ impl<'a> RawUserRecord<'a> {
             // UserRecordType::PERF_AUXTRACE_INFO => {},
             // UserRecordType::PERF_AUXTRACE => {},
             // UserRecordType::PERF_AUXTRACE_ERROR => {},
-            UserRecordType::PERF_THREAD_MAP => {
-                UserRecord::ThreadMap(ThreadMap::parse::<T>(self.data)?)
-            }
             // UserRecordType::PERF_CPU_MAP => {},
             // UserRecordType::PERF_STAT_CONFIG => {},
             // UserRecordType::PERF_STAT => {},
             // UserRecordType::PERF_STAT_ROUND => {},
             // UserRecordType::PERF_EVENT_UPDATE => {},
             // UserRecordType::PERF_TIME_CONV => {},
-            // UserRecordType::PERF_HEADER_FEATURE => {},
             // UserRecordType::PERF_COMPRESSED => {},
             // UserRecordType::SIMPLEPERF_KERNEL_SYMBOL => {},
             // UserRecordType::SIMPLEPERF_DSO => {},
@@ -173,5 +180,61 @@ impl<'a> RawUserRecord<'a> {
             _ => UserRecord::Raw(self.clone()),
         };
         Ok(record)
+    }
+}
+
+/// PERF_RECORD_HEADER_ATTR - Contains event attribute and associated event IDs
+///
+/// Used in pipe mode to transmit event attribute information that would
+/// otherwise be in the attrs section of a regular perf.data file.
+#[derive(Debug, Clone)]
+pub struct HeaderAttr {
+    pub attr: PerfEventAttr,
+    pub ids: Vec<u64>,
+}
+
+impl HeaderAttr {
+    pub fn parse<T: ByteOrder>(data: RawData) -> Result<Self, std::io::Error> {
+        let mut cursor = std::io::Cursor::new(data.as_slice());
+
+        // Parse the perf_event_attr
+        let (attr, _attr_size) = PerfEventAttr::parse::<_, T>(&mut cursor)?;
+
+        // Remaining data is the array of event IDs
+        let mut ids = Vec::new();
+        while cursor.position() < data.len() as u64 {
+            ids.push(cursor.read_u64::<T>()?);
+        }
+
+        Ok(Self { attr, ids })
+    }
+}
+
+/// PERF_RECORD_HEADER_FEATURE - Contains feature section data
+///
+/// Used in pipe mode to transmit feature data that would otherwise be in
+/// the feature sections at the end of a regular perf.data file.
+#[derive(Debug, Clone)]
+pub struct HeaderFeature {
+    pub feature: Feature,
+    pub data: Vec<u8>,
+}
+
+impl HeaderFeature {
+    pub fn parse<T: ByteOrder>(data: RawData) -> Result<Self, std::io::Error> {
+        let mut cursor = std::io::Cursor::new(data.as_slice());
+
+        // First 8 bytes is the feature type
+        let feature_type = cursor.read_u64::<T>()? as u32;
+        let feature = Feature(feature_type);
+
+        // Remaining data is the feature data itself
+        let start_pos = cursor.position() as usize;
+        let feature_data = data.as_slice()[start_pos..].to_vec();
+
+        Ok(Self {
+            feature,
+            data: feature_data,
+        })
     }
 }

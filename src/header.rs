@@ -65,3 +65,31 @@ impl PerfHeader {
         })
     }
 }
+
+/// `perf_pipe_file_header`
+///
+/// A minimal header used in pipe mode to avoid seeking.
+/// In pipe mode, metadata is embedded in the stream via synthesized events
+/// (PERF_RECORD_HEADER_ATTR, PERF_RECORD_HEADER_FEATURE) instead of using
+/// file sections.
+#[derive(Debug, Clone, Copy)]
+pub struct PerfPipeHeader {
+    pub magic: [u8; 8],
+    /// size of the header (should be 16)
+    #[allow(dead_code)]
+    pub size: u64,
+}
+
+impl PerfPipeHeader {
+    pub fn parse<R: Read>(mut reader: R) -> Result<Self, std::io::Error> {
+        let mut magic = [0; 8];
+        reader.read_exact(&mut magic)?;
+
+        let size = if magic[0] == b'P' {
+            reader.read_u64::<byteorder::LittleEndian>()?
+        } else {
+            reader.read_u64::<byteorder::BigEndian>()?
+        };
+        Ok(Self { magic, size })
+    }
+}

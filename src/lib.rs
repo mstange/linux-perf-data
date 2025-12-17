@@ -10,9 +10,11 @@
 //! The [`jitdump`] module lets you parse jitdump files, which are used in
 //! conjunction with perf.data files when profiling JIT runtimes.
 //!
-//! # Example
+//! # File Mode Example
 //!
-//! ```
+//! Parse a perf.data file from disk (requires `Seek`):
+//!
+//! ```no_run
 //! use linux_perf_data::{AttributeDescription, PerfFileReader, PerfFileRecord};
 //!
 //! # fn wrapper() -> Result<(), linux_perf_data::Error> {
@@ -36,6 +38,25 @@
 //!             println!("{:?}: {:?}", record_type, parsed_record);
 //!         }
 //!     }
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Pipe Mode Example
+//!
+//! Parse perf.data from a stream (e.g., stdin, pipe - requires only `Read`):
+//!
+//! ```no_run
+//! use linux_perf_data::{PerfFileReader, PerfFileRecord};
+//!
+//! # fn wrapper() -> Result<(), linux_perf_data::Error> {
+//! let stdin = std::io::stdin();
+//! let PerfFileReader { mut perf_file, mut record_iter } = PerfFileReader::parse_pipe(stdin)?;
+//!
+//! while let Some(record) = record_iter.next_record(&mut perf_file)? {
+//!     // Process records...
+//! #   let _ = record;
 //! }
 //! # Ok(())
 //! # }
@@ -74,7 +95,7 @@ pub use feature_sections::{AttributeDescription, NrCpus, SampleTimeRange};
 pub use features::{Feature, FeatureSet, FeatureSetIter};
 pub use file_reader::{PerfFileReader, PerfRecordIter};
 pub use perf_file::PerfFile;
-pub use record::{PerfFileRecord, RawUserRecord, UserRecord, UserRecordType};
+pub use record::{HeaderAttr, HeaderFeature, PerfFileRecord, RawUserRecord, UserRecord, UserRecordType};
 pub use simpleperf::{
     simpleperf_dso_type, SimpleperfDexFileInfo, SimpleperfElfFileInfo, SimpleperfFileRecord,
     SimpleperfKernelModuleInfo, SimpleperfSymbol, SimpleperfTypeSpecificInfo,
