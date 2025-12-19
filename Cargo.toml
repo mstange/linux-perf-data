@@ -12,6 +12,10 @@ documentation = "https://docs.rs/linux-perf-data/"
 repository = "https://github.com/mstange/linux-perf-data/"
 exclude = ["/.github", "/.vscode", "/tests"]
 
+[features]
+default = ["zstd"]
+zstd = ["zstd-safe"]
+
 [dependencies]
 byteorder = "1.4.3"
 memchr = "2.4.1"
@@ -21,6 +25,7 @@ linux-perf-event-reader = "0.10.0"
 linear-map = "1.2.0"
 prost = { version = "0.14", default-features = false, features = ["std"] }
 prost-derive = "0.14"
+zstd-safe = { version = "7.2", optional = true }
 
 [dev-dependencies]
 yaxpeax-arch = { version = "0.3", default-features = false }
