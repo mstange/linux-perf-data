@@ -2,6 +2,7 @@ use std::io::Read;
 
 use byteorder::{ByteOrder, ReadBytesExt};
 
+use super::error::Error;
 use super::features::FeatureSet;
 use super::section::PerfFileSection;
 
@@ -28,7 +29,7 @@ pub struct PerfHeader {
 }
 
 impl PerfHeader {
-    pub fn parse<R: Read>(mut reader: R) -> Result<Self, std::io::Error> {
+    pub fn parse<R: Read>(mut reader: R) -> Result<Self, Error> {
         let mut magic = [0; 8];
         reader.read_exact(&mut magic)?;
 
@@ -39,11 +40,14 @@ impl PerfHeader {
         }
     }
 
-    fn parse_impl<R: Read, T: ByteOrder>(
-        mut reader: R,
-        magic: [u8; 8],
-    ) -> Result<Self, std::io::Error> {
+    fn parse_impl<R: Read, T: ByteOrder>(mut reader: R, magic: [u8; 8]) -> Result<Self, Error> {
         let header_size = reader.read_u64::<T>()?;
+
+        // Detect if this is actually a pipe format instead of file format.
+        if header_size == std::mem::size_of::<PerfPipeHeader>() as u64 {
+            return Err(Error::PipeFormatDetectedInFileMode);
+        }
+
         let attr_size = reader.read_u64::<T>()?;
         let attr_section = PerfFileSection::parse::<_, T>(&mut reader)?;
         let data_section = PerfFileSection::parse::<_, T>(&mut reader)?;
@@ -63,5 +67,41 @@ impl PerfHeader {
             event_types_section,
             features,
         })
+    }
+}
+
+/// `perf_pipe_file_header`
+///
+/// A minimal header used in pipe mode to avoid seeking.
+/// In pipe mode, metadata is embedded in the stream via synthesized events
+/// (PERF_RECORD_HEADER_ATTR, PERF_RECORD_HEADER_FEATURE) instead of using
+/// file sections.
+#[derive(Debug, Clone, Copy)]
+pub struct PerfPipeHeader {
+    pub magic: [u8; 8],
+    /// size of the header (should be 16)
+    #[allow(dead_code)]
+    pub size: u64,
+}
+
+impl PerfPipeHeader {
+    pub fn parse<R: Read>(mut reader: R) -> Result<Self, Error> {
+        let mut magic = [0; 8];
+        reader.read_exact(&mut magic)?;
+
+        let size = if magic[0] == b'P' {
+            reader.read_u64::<byteorder::LittleEndian>()?
+        } else {
+            reader.read_u64::<byteorder::BigEndian>()?
+        };
+
+        // Detect if this is actually a file format instead of pipe format.
+        if size > std::mem::size_of::<Self>() as u64
+            && size == std::mem::size_of::<PerfHeader>() as u64
+        {
+            return Err(Error::FileFormatDetectedInPipeMode);
+        }
+
+        Ok(Self { magic, size })
     }
 }
