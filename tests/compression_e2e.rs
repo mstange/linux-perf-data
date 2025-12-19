@@ -1,4 +1,4 @@
-use linux_perf_data::{CompressionInfo, PerfFileReader, PerfFileRecord};
+use linux_perf_data::{CompressionInfo, Error, PerfFileReader, PerfFileRecord};
 use std::fs::File;
 use std::io::BufReader;
 
@@ -377,4 +377,38 @@ fn test_zstd_feature_disabled_error() {
             "Should get an error when reading compressed data without zstd feature"
         );
     }
+}
+
+/// Test that parse_pipe fails with a clear error when given file format data
+#[test]
+fn test_parse_pipe_with_file_format_fails() {
+    let file = File::open("tests/fixtures/sleep.data").unwrap();
+    let reader = BufReader::new(file);
+
+    let result = PerfFileReader::parse_pipe(reader);
+    assert!(
+        matches!(result, Err(Error::FileFormatDetectedInPipeMode)),
+        "Expected FileFormatDetectedInPipeMode error"
+    );
+}
+
+/// Test that parse_file transparently handles pipe format by falling back to parse_pipe
+#[test]
+fn test_parse_file_with_pipe_format_falls_back() {
+    let file = File::open("tests/fixtures/sleep_compressed.pipe.data").unwrap();
+    let reader = BufReader::new(file);
+
+    // parse_file should detect pipe format and fall back to parse_pipe
+    let PerfFileReader {
+        mut perf_file,
+        mut record_iter,
+    } = PerfFileReader::parse_file(reader)
+        .expect("parse_file should handle pipe format transparently");
+
+    // Should be able to read records
+    let mut count = 0;
+    while let Some(_record) = record_iter.next_record(&mut perf_file).unwrap() {
+        count += 1;
+    }
+    assert!(count > 0, "Should have read some records");
 }
