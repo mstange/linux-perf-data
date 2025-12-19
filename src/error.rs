@@ -63,6 +63,12 @@ pub enum Error {
 
     #[error("The specified size in the perf event header was smaller than the header itself")]
     InvalidPerfEventSize,
+
+    #[error("Cannot parse non-streaming perf.data file with parse_pipe. Use parse_file instead.")]
+    FileFormatDetectedInPipeMode,
+
+    #[error("Detected pipe format in file mode")]
+    PipeFormatDetectedInFileMode,
 }
 
 impl From<std::str::Utf8Error> for Error {

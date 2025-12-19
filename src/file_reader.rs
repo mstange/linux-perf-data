@@ -58,7 +58,15 @@ pub struct PerfFileReader<R: Read> {
 
 impl<C: Read + Seek> PerfFileReader<C> {
     pub fn parse_file(mut cursor: C) -> Result<Self, Error> {
-        let header = PerfHeader::parse(&mut cursor)?;
+        let header = match PerfHeader::parse(&mut cursor) {
+            Ok(header) => header,
+            Err(Error::PipeFormatDetectedInFileMode) => {
+                // Rewind and parse as pipe format instead
+                cursor.seek(SeekFrom::Start(0))?;
+                return Self::parse_pipe(cursor);
+            }
+            Err(e) => return Err(e),
+        };
         match &header.magic {
             b"PERFILE2" => {
                 Self::parse_file_impl::<LittleEndian>(cursor, header, Endianness::LittleEndian)
