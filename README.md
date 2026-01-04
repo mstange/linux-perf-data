@@ -15,7 +15,16 @@ records" from perf / simpleperf.
 This crate also contains parsing code for jitdump files, which are used
 in conjunction with perf.data files when profiling JIT runtimes.
 
-# Example
+## File Modes
+
+This crate supports two modes for reading perf.data files:
+
+- **File mode** (`parse_file`) - For reading regular perf.data files from disk. Requires `Read + Seek`.
+- **Pipe mode** (`parse_pipe`) - For streaming perf.data from pipes, stdin, or network streams. Only requires `Read`.
+
+# Examples
+
+## File Mode Example
 
 ```rust
 use linux_perf_data::{AttributeDescription, PerfFileReader, PerfFileRecord};
@@ -41,6 +50,40 @@ while let Some(record) = record_iter.next_record(&mut perf_file)? {
         }
     }
 }
+```
+
+## Pipe Mode Example
+
+Read perf.data from stdin or a pipe (no seeking required):
+
+```rust
+use linux_perf_data::{PerfFileReader, PerfFileRecord};
+
+// Read from stdin
+let stdin = std::io::stdin();
+let PerfFileReader { mut perf_file, mut record_iter } = PerfFileReader::parse_pipe(stdin)?;
+
+println!("Events: {}", perf_file.event_attributes().len());
+
+while let Some(record) = record_iter.next_record(&mut perf_file)? {
+    match record {
+        PerfFileRecord::EventRecord { attr_index, record } => {
+            // Process event records
+        }
+        PerfFileRecord::UserRecord(record) => {
+            // Process user records
+        }
+    }
+}
+```
+
+**Command-line usage:**
+```bash
+# Stream directly from perf record
+perf record -o - sleep 1 | cargo run --example perfpipeinfo
+
+# Or pipe an existing file
+cat perf.data | cargo run --example perfpipeinfo
 ```
 
 ## Jitdump example
