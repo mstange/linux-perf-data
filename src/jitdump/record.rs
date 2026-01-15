@@ -13,6 +13,7 @@ impl JitDumpRecordType {
     pub const JIT_CODE_DEBUG_INFO: Self = Self(2);
     pub const JIT_CODE_CLOSE: Self = Self(3);
     pub const JIT_CODE_UNWINDING_INFO: Self = Self(4);
+    pub const JIT_CODE_INLINE_INFO: Self = Self(5);
 }
 
 /// The header which is at the start of every jitdump record.
@@ -57,6 +58,7 @@ pub enum JitDumpRecord<'a> {
     CodeDebugInfo(JitCodeDebugInfoRecord<'a>),
     CodeClose,
     CodeUnwindingInfo(JitCodeUnwindingInfoRecord<'a>),
+    Inline(JitCodeInlineRecord<'a>),
     Other(JitDumpRawRecord<'a>),
 }
 
@@ -97,6 +99,10 @@ impl<'a> JitDumpRawRecord<'a> {
             JitDumpRecordType::JIT_CODE_UNWINDING_INFO => {
                 let record = JitCodeUnwindingInfoRecord::parse(self.endian, self.body)?;
                 Ok(JitDumpRecord::CodeUnwindingInfo(record))
+            }
+            JitDumpRecordType::JIT_CODE_INLINE_INFO => {
+                let record = JitCodeInlineRecord::parse(self.endian, self.body)?;
+                Ok(JitDumpRecord::Inline(record))
             }
             _ => Ok(JitDumpRecord::Other(self.clone())),
         }

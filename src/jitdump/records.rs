@@ -1,3 +1,5 @@
+use core::str;
+
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use linux_perf_event_reader::{Endianness, RawData};
 
@@ -67,6 +69,86 @@ impl<'a> JitCodeLoadRecord<'a> {
     /// name.
     pub fn code_bytes_offset_from_record_header_start(&self) -> usize {
         JitDumpRecordHeader::SIZE + 4 + 4 + 8 + 8 + 8 + 8 + self.function_name.len() + 1
+    }
+}
+
+/*
++struct PerfJitInlineEntry {
++  uint64_t start_addr_;
++  uint64_t end_addr_;
++  uint32_t call_file_;
++  uint32_t call_line_;
++  uint32_t call_column_;
++  uint32_t inline_depth_;
++  // Followed by null-terminated func_name and call_file_name strings.
++};
++
++struct PerfJitCodeInline : PerfJitBase {
++  uint64_t code_addr_;
++  uint64_t nr_entry_;
++  // Followed by nr_entry_ instances of PerfJitInlineEntry.
++};
+
+*/
+#[derive(Debug, Clone)]
+pub struct JitCodeInlineRecord<'a> {
+    /// The address of the code bytes of the function for which the inline information is generated.
+    pub code_addr: u64,
+    /// The list of inline entries.
+    pub entries: Vec<JitCodeInlineEntry<'a>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct JitCodeInlineEntry<'a> {
+    /// The start address of the inlined function code bytes.
+    pub start_addr: u64,
+    /// The end address of the inlined function code bytes.
+    pub end_addr: u64,
+    /// The name of the inlined function, in ASCII.
+    pub func_name: RawData<'a>,
+    /// The file path where the inlined function is defined, in ASCII.
+    pub call_file_name: RawData<'a>,
+    /// The line number in the source file (1-based) where the inlined function is called.
+    pub call_line: u32,
+    /// The column number. Zero means "no column information", 1 means "beginning of the line".
+    pub call_column: u32,
+    /// The depth of inlining (0 means directly called, 1 means inlined into a directly called function, etc).
+    pub inline_depth: u32,
+}
+
+impl<'a> JitCodeInlineRecord<'a> {
+    pub fn parse(endian: Endianness, data: RawData<'a>) -> Result<Self, std::io::Error> {
+        match endian {
+            Endianness::LittleEndian => Self::parse_impl::<LittleEndian>(data),
+            Endianness::BigEndian => Self::parse_impl::<BigEndian>(data),
+        }
+    }
+    pub fn parse_impl<O: ByteOrder>(data: RawData<'a>) -> Result<Self, std::io::Error> {
+        let mut cur = data;
+        let code_addr = cur.read_u64::<O>()?;
+        let nr_entry = cur.read_u64::<O>()?;
+        let mut entries = Vec::with_capacity(nr_entry as usize);
+        for _ in 0..nr_entry {
+            let start_addr = cur.read_u64::<O>()?;
+            let end_addr = cur.read_u64::<O>()?;
+            let call_file_offset = cur.read_u32::<O>()?;
+            let call_line = cur.read_u32::<O>()?;
+            let call_column = cur.read_u32::<O>()?;
+            let inline_depth = cur.read_u32::<O>()?;
+            let func_name = cur.read_string().ok_or(std::io::ErrorKind::UnexpectedEof)?;
+            let call_file_name = cur.read_string().ok_or(std::io::ErrorKind::UnexpectedEof)?;
+            entries.push(JitCodeInlineEntry {
+                start_addr,
+                end_addr,
+                func_name,
+                call_file_name,
+                call_line,
+                call_column,
+                inline_depth,
+            });
+        }
+
+        Ok(Self { code_addr, entries })
     }
 }
 
