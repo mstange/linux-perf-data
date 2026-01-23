@@ -49,6 +49,40 @@ impl SampleTimeRange {
     }
 }
 
+/// Information about compression used in the perf.data file.
+#[derive(Debug, Clone, Copy)]
+pub struct CompressionInfo {
+    pub version: u32,
+    /// Compression algorithm type. 1 = Zstd
+    pub type_: u32,
+    /// Compression level (e.g., 1-22 for Zstd)
+    pub level: u32,
+    /// Compression ratio achieved
+    pub ratio: u32,
+    /// mmap buffer size
+    pub mmap_len: u32,
+}
+
+impl CompressionInfo {
+    pub const STRUCT_SIZE: usize = 4 + 4 + 4 + 4 + 4;
+    pub const ZSTD_TYPE: u32 = 1;
+
+    pub fn parse<R: Read, T: ByteOrder>(mut reader: R) -> Result<Self, std::io::Error> {
+        let version = reader.read_u32::<T>()?;
+        let type_ = reader.read_u32::<T>()?;
+        let level = reader.read_u32::<T>()?;
+        let ratio = reader.read_u32::<T>()?;
+        let mmap_len = reader.read_u32::<T>()?;
+        Ok(Self {
+            version,
+            type_,
+            level,
+            ratio,
+            mmap_len,
+        })
+    }
+}
+
 pub struct HeaderString;
 
 impl HeaderString {
