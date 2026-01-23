@@ -67,12 +67,10 @@ fn main() {
                 println!("  address: {:#x}", record.code_addr);
                 for entry in &record.entries {
                     println!(
-                        "  {:#8x} {}:{}:{} depth {}",
-                        entry.start_addr,
+                        "  {}:{}:{}",
                         std::str::from_utf8(&entry.func_name.as_slice()).unwrap(),
-                        entry.call_line,
-                        entry.call_column,
-                        entry.inline_depth
+                        entry.line,
+                        entry.column,
                     );
                 }
             }

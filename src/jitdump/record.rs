@@ -58,7 +58,7 @@ pub enum JitDumpRecord<'a> {
     CodeDebugInfo(JitCodeDebugInfoRecord<'a>),
     CodeClose,
     CodeUnwindingInfo(JitCodeUnwindingInfoRecord<'a>),
-    Inline(JitCodeInlineRecord<'a>),
+    Inline(JitCodeInlineInfoRecord<'a>),
     Other(JitDumpRawRecord<'a>),
 }
 
@@ -101,7 +101,7 @@ impl<'a> JitDumpRawRecord<'a> {
                 Ok(JitDumpRecord::CodeUnwindingInfo(record))
             }
             JitDumpRecordType::JIT_CODE_INLINE_INFO => {
-                let record = JitCodeInlineRecord::parse(self.endian, self.body)?;
+                let record = JitCodeInlineInfoRecord::parse(self.endian, self.body)?;
                 Ok(JitDumpRecord::Inline(record))
             }
             _ => Ok(JitDumpRecord::Other(self.clone())),
