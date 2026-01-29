@@ -73,6 +73,7 @@ fn main() {
                         entry.column,
                     );
                 }
+                println!();
             }
             JitDumpRecord::Other(record) => {
                 println!("{timestamp:016} <unknown type {}>", record.record_type.0);
