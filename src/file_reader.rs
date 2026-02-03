@@ -439,7 +439,7 @@ impl<R: Read> PerfRecordIter<R> {
     fn read_next_round_impl<T: ByteOrder>(&mut self) -> Result<(), Error> {
         // Handle pending first record from pipe mode initialization
         if let Some((pending_header, pending_buffer)) = self.pending_first_record.take() {
-            self.process_record::<T>(pending_header, pending_buffer, self.read_offset)?;
+            self.process_record::<T>(pending_header, pending_buffer, Some(self.read_offset))?;
             self.read_offset += u64::from(pending_header.size);
         }
 
@@ -528,7 +528,7 @@ impl<R: Read> PerfRecordIter<R> {
                 }
             }
 
-            self.process_record::<T>(header, buffer, offset)?;
+            self.process_record::<T>(header, buffer, Some(offset))?;
         }
 
         // Everything has been read.
@@ -542,7 +542,7 @@ impl<R: Read> PerfRecordIter<R> {
         &mut self,
         header: PerfEventHeader,
         buffer: Vec<u8>,
-        offset: u64,
+        offset: Option<u64>,
     ) -> Result<(), Error> {
         let data = RawData::from(&buffer[..]);
         let record_type = RecordType(header.type_);
@@ -631,42 +631,37 @@ impl<R: Read> PerfRecordIter<R> {
         &mut self,
         decompressed: &[u8],
     ) -> Result<(), Error> {
-        let mut cursor = Cursor::new(decompressed);
-        let mut offset = 0u64;
+        let mut remaining = decompressed;
 
-        while (cursor.position() as usize) < decompressed.len() {
-            let header_start = cursor.position() as usize;
-            // Check if we have enough bytes for a header
-            let remaining = decompressed.len() - header_start;
-            if remaining < PerfEventHeader::STRUCT_SIZE {
-                self.zstd_decompressor
-                    .save_partial_record(&decompressed[header_start..]);
+        while !remaining.is_empty() {
+            let Some((header_data, after_header_data)) =
+                remaining.split_at_checked(PerfEventHeader::STRUCT_SIZE)
+            else {
+                self.zstd_decompressor.save_partial_record(remaining);
                 break;
-            }
+            };
 
-            let sub_header = PerfEventHeader::parse::<_, T>(&mut cursor)?;
-            let sub_size = sub_header.size as usize;
-            if sub_size < PerfEventHeader::STRUCT_SIZE {
+            let header = PerfEventHeader::parse::<_, T>(header_data)?;
+            let record_size = header.size as usize;
+            let Some(record_body_len) = record_size.checked_sub(PerfEventHeader::STRUCT_SIZE)
+            else {
                 return Err(Error::InvalidPerfEventSize);
-            }
+            };
 
-            let sub_event_body_len = sub_size - PerfEventHeader::STRUCT_SIZE;
-            // Check if we have enough bytes for the sub-record body
-            let remaining_after_header = decompressed.len() - cursor.position() as usize;
-            if sub_event_body_len > remaining_after_header {
-                self.zstd_decompressor
-                    .save_partial_record(&decompressed[header_start..]);
+            let Some((record_body_data, after_record_data)) =
+                after_header_data.split_at_checked(record_body_len)
+            else {
+                self.zstd_decompressor.save_partial_record(remaining);
                 break;
-            }
+            };
 
-            let mut sub_buffer = self.buffers_for_recycling.pop_front().unwrap_or_default();
-            sub_buffer.resize(sub_event_body_len, 0);
-            cursor
-                .read_exact(&mut sub_buffer)
-                .map_err(|_| ReadError::PerfEventData)?;
+            let mut record_body_buffer = self.buffers_for_recycling.pop_front().unwrap_or_default();
+            record_body_buffer.clear();
+            record_body_buffer.extend_from_slice(record_body_data);
 
-            self.process_record::<T>(sub_header, sub_buffer, offset)?;
-            offset += sub_size as u64;
+            self.process_record::<T>(header, record_body_buffer, None)?;
+
+            remaining = after_record_data;
         }
         Ok(())
     }
@@ -718,7 +713,7 @@ struct PendingRecord {
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct RecordSortKey {
     timestamp: Option<u64>,
-    offset: u64,
+    offset: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
