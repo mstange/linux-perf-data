@@ -3,8 +3,6 @@ use zstd_safe::{DCtx, InBuffer, OutBuffer};
 /// A zstd decompressor for PERF_RECORD_COMPRESSED records.
 pub struct ZstdDecompressor {
     dctx: Option<DCtx<'static>>,
-    /// Buffer for partial perf records that span multiple compressed chunks
-    partial_record_buffer: Vec<u8>,
 }
 
 impl Default for ZstdDecompressor {
@@ -15,10 +13,7 @@ impl Default for ZstdDecompressor {
 
 impl ZstdDecompressor {
     pub fn new() -> Self {
-        Self {
-            dctx: None,
-            partial_record_buffer: Vec::new(),
-        }
+        Self { dctx: None }
     }
 
     /// Decompress a chunk of zstd data.
@@ -52,18 +47,6 @@ impl ZstdDecompressor {
 
         decompressed.truncate(total_out);
 
-        // Prepend any partial record data from the previous chunk
-        if !self.partial_record_buffer.is_empty() {
-            let mut combined = std::mem::take(&mut self.partial_record_buffer);
-            combined.extend_from_slice(&decompressed);
-            decompressed = combined;
-        }
-
         Ok(decompressed)
-    }
-
-    /// Save partial record data that spans to the next compressed chunk.
-    pub fn save_partial_record(&mut self, data: &[u8]) {
-        self.partial_record_buffer = data.to_vec();
     }
 }

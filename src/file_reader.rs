@@ -201,6 +201,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
             pending_first_record: None,
             #[cfg(feature = "zstd")]
             zstd_decompressor: ZstdDecompressor::new(),
+            pending_decompressed_data: Vec::new(),
         };
 
         Ok(Self {
@@ -373,6 +374,7 @@ impl<R: Read> PerfFileReader<R> {
             pending_first_record,
             #[cfg(feature = "zstd")]
             zstd_decompressor: ZstdDecompressor::new(),
+            pending_decompressed_data: Vec::new(),
         };
 
         Ok(Self {
@@ -401,6 +403,10 @@ pub struct PerfRecordIter<R: Read> {
     /// Zstd decompressor for handling COMPRESSED records
     #[cfg(feature = "zstd")]
     zstd_decompressor: ZstdDecompressor,
+    /// Decompressed data from the end of previous compressed record which
+    /// wasn't enough to form a full record and needs to be concatenated
+    /// with upcoming decompressed data.
+    pending_decompressed_data: Vec<u8>,
 }
 
 impl<R: Read> PerfRecordIter<R> {
@@ -596,7 +602,9 @@ impl<R: Read> PerfRecordIter<R> {
         // (no data_size field - size is implicit from header.size)
         let compressed_data = buffer;
 
-        let decompressed = self.zstd_decompressor.decompress(compressed_data)?;
+        let new_decompressed = self.zstd_decompressor.decompress(compressed_data)?;
+        let mut decompressed = core::mem::take(&mut self.pending_decompressed_data);
+        decompressed.extend_from_slice(&new_decompressed);
         self.process_decompressed_records::<T>(&decompressed)
     }
 
@@ -620,7 +628,9 @@ impl<R: Read> PerfRecordIter<R> {
         }
         let compressed_data = &buffer[8..8 + data_size];
 
-        let decompressed = self.zstd_decompressor.decompress(compressed_data)?;
+        let new_decompressed = self.zstd_decompressor.decompress(compressed_data)?;
+        let mut decompressed = core::mem::take(&mut self.pending_decompressed_data);
+        decompressed.extend_from_slice(&new_decompressed);
         self.process_decompressed_records::<T>(&decompressed)
     }
 
@@ -637,7 +647,7 @@ impl<R: Read> PerfRecordIter<R> {
             let Some((header_data, after_header_data)) =
                 remaining.split_at_checked(PerfEventHeader::STRUCT_SIZE)
             else {
-                self.zstd_decompressor.save_partial_record(remaining);
+                self.pending_decompressed_data.extend_from_slice(remaining);
                 break;
             };
 
@@ -651,7 +661,7 @@ impl<R: Read> PerfRecordIter<R> {
             let Some((record_body_data, after_record_data)) =
                 after_header_data.split_at_checked(record_body_len)
             else {
-                self.zstd_decompressor.save_partial_record(remaining);
+                self.pending_decompressed_data.extend_from_slice(remaining);
                 break;
             };
 
