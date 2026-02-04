@@ -509,35 +509,33 @@ impl<R: Read> PerfRecordIter<R> {
                 }
             }
 
-            if user_record_type == Some(UserRecordType::PERF_COMPRESSED) {
-                #[cfg(not(feature = "zstd"))]
-                {
-                    return Err(Error::IoError(std::io::Error::new(std::io::ErrorKind::Unsupported,
+            match user_record_type {
+                Some(UserRecordType::PERF_COMPRESSED | UserRecordType::PERF_COMPRESSED2) => {
+                    #[cfg(not(feature = "zstd"))]
+                    {
+                        return Err(Error::IoError(std::io::Error::new(std::io::ErrorKind::Unsupported,
                         "Compression support is not enabled. Please rebuild with the 'zstd' feature flag.",
                     )));
+                    }
+                    #[cfg(feature = "zstd")]
+                    {
+                        let compressed_data =
+                            if user_record_type.unwrap() == UserRecordType::PERF_COMPRESSED {
+                                // PERF_RECORD_COMPRESSED (type 81) was introduced in Linux 5.2 (2019).
+                                // The entire body is the compressed data.
+                                &buffer[..]
+                            } else {
+                                // PERF_RECORD_COMPRESSED2 (type 83) was introduced in Linux 6.x (May 2025)
+                                // The record now specifies the compressed size explicitly because
+                                // the compressed data may not fill the entire body (it shouldn't
+                                // include the alignment padding).
+                                Self::get_compressed_data_for_compressed2_record::<T>(&buffer)?
+                            };
+                        self.process_compressed_record_data::<T>(compressed_data)?;
+                    }
                 }
-                #[cfg(feature = "zstd")]
-                {
-                    self.handle_perf_compressed_record::<T>(&buffer)?;
-                    continue;
-                }
+                _ => self.process_record::<T>(header, buffer, Some(offset))?,
             }
-
-            if user_record_type == Some(UserRecordType::PERF_COMPRESSED2) {
-                #[cfg(not(feature = "zstd"))]
-                {
-                    return Err(Error::IoError(std::io::Error::new(std::io::ErrorKind::Unsupported,
-                        "Compression support is not enabled. Please rebuild with the 'zstd' feature flag.",
-                    )));
-                }
-                #[cfg(feature = "zstd")]
-                {
-                    self.handle_perf_compressed2_record::<T>(&buffer)?;
-                    continue;
-                }
-            }
-
-            self.process_record::<T>(header, buffer, Some(offset))?;
         }
 
         // Everything has been read.
@@ -591,26 +589,16 @@ impl<R: Read> PerfRecordIter<R> {
         Ok(())
     }
 
-    /// Decompresses a PERF_RECORD_COMPRESSED record and processes its sub-records.
-    ///
-    /// PERF_RECORD_COMPRESSED (type 81) was introduced in Linux 5.2 (2019).
-    /// Format: header (8 bytes) + compressed data (header.size - 8 bytes)
-    /// The compressed data size is implicit from the header size.
-    #[cfg(feature = "zstd")]
-    fn handle_perf_compressed_record<T: ByteOrder>(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        // For COMPRESSED, the entire buffer is compressed data
-        // (no data_size field - size is implicit from header.size)
-        self.process_compressed_record_data::<T>(buffer)
-    }
-
-    /// Decompresses a PERF_RECORD_COMPRESSED2 record and processes its sub-records.
+    /// Return the actual compressed part of a COMPRESSED2 record body.
     ///
     /// PERF_RECORD_COMPRESSED2 (type 83) was introduced in Linux 6.x (May 2025)
     /// to fix 8-byte alignment issues with the original format.
     /// Format: header (8 bytes) + data_size (8 bytes) + compressed data + padding
     /// The header.size includes padding for 8-byte alignment; data_size has the actual size.
     #[cfg(feature = "zstd")]
-    fn handle_perf_compressed2_record<T: ByteOrder>(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    fn get_compressed_data_for_compressed2_record<T: ByteOrder>(
+        buffer: &[u8],
+    ) -> Result<&[u8], Error> {
         if buffer.len() < 8 {
             return Err(ReadError::PerfEventData.into());
         }
@@ -618,9 +606,7 @@ impl<R: Read> PerfRecordIter<R> {
         if data_size > buffer.len() - 8 {
             return Err(ReadError::PerfEventData.into());
         }
-        let compressed_data = &buffer[8..8 + data_size];
-
-        self.process_compressed_record_data::<T>(compressed_data)
+        Ok(&buffer[8..8 + data_size])
     }
 
     #[cfg(feature = "zstd")]
@@ -649,14 +635,9 @@ impl<R: Read> PerfRecordIter<R> {
     ) -> Result<usize, Error> {
         let mut remaining = decompressed;
 
-        while !remaining.is_empty() {
-            let Some((header_data, after_header_data)) =
-                remaining.split_at_checked(PerfEventHeader::STRUCT_SIZE)
-            else {
-                // Not enough remaining data for the record header
-                return Ok(remaining.len());
-            };
-
+        while let Some((header_data, after_header_data)) =
+            remaining.split_at_checked(PerfEventHeader::STRUCT_SIZE)
+        {
             let header = PerfEventHeader::parse::<_, T>(header_data)?;
             let record_size = header.size as usize;
             let Some(record_body_len) = record_size.checked_sub(PerfEventHeader::STRUCT_SIZE)
@@ -668,7 +649,7 @@ impl<R: Read> PerfRecordIter<R> {
                 after_header_data.split_at_checked(record_body_len)
             else {
                 // Not enough remaining data for the full record
-                return Ok(remaining.len());
+                break;
             };
 
             let mut record_body_buffer = self.buffers_for_recycling.pop_front().unwrap_or_default();
@@ -679,7 +660,7 @@ impl<R: Read> PerfRecordIter<R> {
 
             remaining = after_record_data;
         }
-        Ok(0)
+        Ok(remaining.len())
     }
 
     /// Converts pending_record into an RawRecord which references the data in self.current_event_body.
