@@ -201,6 +201,7 @@ impl<C: Read + Seek> PerfFileReader<C> {
             pending_first_record: None,
             #[cfg(feature = "zstd")]
             zstd_decompressor: ZstdDecompressor::new(),
+            #[cfg(feature = "zstd")]
             pending_decompressed_data: Vec::new(),
         };
 
@@ -374,6 +375,7 @@ impl<R: Read> PerfFileReader<R> {
             pending_first_record,
             #[cfg(feature = "zstd")]
             zstd_decompressor: ZstdDecompressor::new(),
+            #[cfg(feature = "zstd")]
             pending_decompressed_data: Vec::new(),
         };
 
@@ -406,6 +408,7 @@ pub struct PerfRecordIter<R: Read> {
     /// Decompressed data from the end of previous compressed record which
     /// wasn't enough to form a full record and needs to be concatenated
     /// with upcoming decompressed data.
+    #[cfg(feature = "zstd")]
     pending_decompressed_data: Vec<u8>,
 }
 
@@ -515,7 +518,7 @@ impl<R: Read> PerfRecordIter<R> {
                 }
                 #[cfg(feature = "zstd")]
                 {
-                    self.decompress_and_process_compressed::<T>(&buffer)?;
+                    self.handle_perf_compressed_record::<T>(&buffer)?;
                     continue;
                 }
             }
@@ -529,7 +532,7 @@ impl<R: Read> PerfRecordIter<R> {
                 }
                 #[cfg(feature = "zstd")]
                 {
-                    self.decompress_and_process_compressed2::<T>(&buffer)?;
+                    self.handle_perf_compressed2_record::<T>(&buffer)?;
                     continue;
                 }
             }
@@ -594,18 +597,10 @@ impl<R: Read> PerfRecordIter<R> {
     /// Format: header (8 bytes) + compressed data (header.size - 8 bytes)
     /// The compressed data size is implicit from the header size.
     #[cfg(feature = "zstd")]
-    fn decompress_and_process_compressed<T: ByteOrder>(
-        &mut self,
-        buffer: &[u8],
-    ) -> Result<(), Error> {
+    fn handle_perf_compressed_record<T: ByteOrder>(&mut self, buffer: &[u8]) -> Result<(), Error> {
         // For COMPRESSED, the entire buffer is compressed data
         // (no data_size field - size is implicit from header.size)
-        let compressed_data = buffer;
-
-        let new_decompressed = self.zstd_decompressor.decompress(compressed_data)?;
-        let mut decompressed = core::mem::take(&mut self.pending_decompressed_data);
-        decompressed.extend_from_slice(&new_decompressed);
-        self.process_decompressed_records::<T>(&decompressed)
+        self.process_compressed_record_data::<T>(buffer)
     }
 
     /// Decompresses a PERF_RECORD_COMPRESSED2 record and processes its sub-records.
@@ -615,10 +610,7 @@ impl<R: Read> PerfRecordIter<R> {
     /// Format: header (8 bytes) + data_size (8 bytes) + compressed data + padding
     /// The header.size includes padding for 8-byte alignment; data_size has the actual size.
     #[cfg(feature = "zstd")]
-    fn decompress_and_process_compressed2<T: ByteOrder>(
-        &mut self,
-        buffer: &[u8],
-    ) -> Result<(), Error> {
+    fn handle_perf_compressed2_record<T: ByteOrder>(&mut self, buffer: &[u8]) -> Result<(), Error> {
         if buffer.len() < 8 {
             return Err(ReadError::PerfEventData.into());
         }
@@ -628,27 +620,41 @@ impl<R: Read> PerfRecordIter<R> {
         }
         let compressed_data = &buffer[8..8 + data_size];
 
-        let new_decompressed = self.zstd_decompressor.decompress(compressed_data)?;
+        self.process_compressed_record_data::<T>(compressed_data)
+    }
+
+    #[cfg(feature = "zstd")]
+    fn process_compressed_record_data<T: ByteOrder>(
+        &mut self,
+        compressed_data: &[u8],
+    ) -> Result<(), Error> {
         let mut decompressed = core::mem::take(&mut self.pending_decompressed_data);
-        decompressed.extend_from_slice(&new_decompressed);
-        self.process_decompressed_records::<T>(&decompressed)
+        self.zstd_decompressor
+            .decompress_into(compressed_data, &mut decompressed)?;
+        let remaining_len = self.process_decompressed_records::<T>(&decompressed)?;
+        decompressed.drain(0..(decompressed.len() - remaining_len));
+        self.pending_decompressed_data = decompressed;
+        Ok(())
     }
 
     /// Processes decompressed data as a sequence of perf records.
     /// Shared by both COMPRESSED and COMPRESSED2 handlers.
+    ///
+    /// Returns the number of bytes remaining which need to be carried
+    /// over into the next call.
     #[cfg(feature = "zstd")]
     fn process_decompressed_records<T: ByteOrder>(
         &mut self,
         decompressed: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let mut remaining = decompressed;
 
         while !remaining.is_empty() {
             let Some((header_data, after_header_data)) =
                 remaining.split_at_checked(PerfEventHeader::STRUCT_SIZE)
             else {
-                self.pending_decompressed_data.extend_from_slice(remaining);
-                break;
+                // Not enough remaining data for the record header
+                return Ok(remaining.len());
             };
 
             let header = PerfEventHeader::parse::<_, T>(header_data)?;
@@ -661,8 +667,8 @@ impl<R: Read> PerfRecordIter<R> {
             let Some((record_body_data, after_record_data)) =
                 after_header_data.split_at_checked(record_body_len)
             else {
-                self.pending_decompressed_data.extend_from_slice(remaining);
-                break;
+                // Not enough remaining data for the full record
+                return Ok(remaining.len());
             };
 
             let mut record_body_buffer = self.buffers_for_recycling.pop_front().unwrap_or_default();
@@ -673,7 +679,7 @@ impl<R: Read> PerfRecordIter<R> {
 
             remaining = after_record_data;
         }
-        Ok(())
+        Ok(0)
     }
 
     /// Converts pending_record into an RawRecord which references the data in self.current_event_body.
