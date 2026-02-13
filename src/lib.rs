@@ -99,7 +99,9 @@ pub use feature_sections::{AttributeDescription, CompressionInfo, NrCpus, Sample
 pub use features::{Feature, FeatureSet, FeatureSetIter};
 pub use file_reader::{PerfFileReader, PerfRecordIter};
 pub use perf_file::PerfFile;
-pub use record::{HeaderAttr, HeaderFeature, PerfFileRecord, RawUserRecord, UserRecord, UserRecordType};
+pub use record::{
+    HeaderAttr, HeaderFeature, PerfFileRecord, RawUserRecord, UserRecord, UserRecordType,
+};
 pub use simpleperf::{
     simpleperf_dso_type, SimpleperfDexFileInfo, SimpleperfElfFileInfo, SimpleperfFileRecord,
     SimpleperfKernelModuleInfo, SimpleperfSymbol, SimpleperfTypeSpecificInfo,
