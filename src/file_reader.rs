@@ -12,6 +12,7 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 #[cfg(feature = "zstd")]
 use crate::decompression::ZstdDecompressor;
 
+use super::auxtrace::Auxtrace;
 use super::error::{Error, ReadError};
 use super::feature_sections::AttributeDescription;
 use super::features::Feature;
@@ -533,6 +534,27 @@ impl<R: Read> PerfRecordIter<R> {
                             };
                         self.process_compressed_record_data::<T>(compressed_data)?;
                     }
+                }
+                Some(UserRecordType::PERF_AUXTRACE) => {
+                    // So far the buffer contents only contain the auxtrace struct
+                    // values, but not the actual auxtrace data.
+                    // Get the length of the auxtrace data, and then read the bytes
+                    // and append them to the record buffer.
+                    let auxtrace = Auxtrace::parse::<T>(RawData::Single(&buffer))?;
+                    let auxtrace_size = auxtrace.size;
+
+                    let auxtrace_len =
+                        usize::try_from(auxtrace.size).map_err(|_| ReadError::PerfEventData)?;
+                    let actual_event_body_len = event_body_len
+                        .checked_add(auxtrace_len)
+                        .ok_or(ReadError::PerfEventData)?;
+                    buffer.resize(actual_event_body_len, 0);
+                    self.reader
+                        .read_exact(&mut buffer[event_body_len..])
+                        .map_err(|_| ReadError::PerfEventData)?;
+                    self.read_offset += auxtrace_size;
+
+                    self.process_record::<T>(header, buffer, Some(offset))?
                 }
                 _ => self.process_record::<T>(header, buffer, Some(offset))?,
             }
