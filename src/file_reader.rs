@@ -23,6 +23,14 @@ use super::section::PerfFileSection;
 use super::simpleperf;
 use super::sorter::Sorter;
 
+/// How many records between synthetic round boundaries when reading simpleperf
+/// files. Simpleperf heap-merges per-CPU buffers per wake-up but not globally,
+/// so a thread migrating across CPUs at a wake-up boundary can produce small
+/// clusters of out-of-order records. A delta of up to ~200 records has been
+/// observed in practice; 1024 gives comfortable headroom while keeping the
+/// sorter's in-flight buffer to O(2 * 1024) records.
+const SIMPLEPERF_SYNTHETIC_ROUND_SIZE: usize = 1024;
+
 /// A parser for the perf.data file format.
 ///
 /// # Example
@@ -181,6 +189,10 @@ impl<C: Read + Seek> PerfFileReader<C> {
         // reading records from it.
         cursor.seek(SeekFrom::Start(header.data_section.offset))?;
 
+        let is_simpleperf = feature_sections
+            .get(&Feature::SIMPLEPERF_META_INFO)
+            .is_some();
+
         let perf_file = PerfFile {
             endian,
             features: header.features,
@@ -197,6 +209,12 @@ impl<C: Read + Seek> PerfFileReader<C> {
             read_offset: 0,
             record_data_len: Some(header.data_section.size),
             sorter: Sorter::new(),
+            synthetic_round_size: if is_simpleperf {
+                Some(SIMPLEPERF_SYNTHETIC_ROUND_SIZE)
+            } else {
+                None
+            },
+            records_since_last_finished_round: 0,
             buffers_for_recycling: VecDeque::new(),
             current_event_body: Vec::new(),
             pending_first_record: None,
@@ -355,6 +373,10 @@ impl<R: Read> PerfFileReader<R> {
             }
         }
 
+        let is_simpleperf = feature_sections
+            .get(&Feature::SIMPLEPERF_META_INFO)
+            .is_some();
+
         let perf_file = PerfFile {
             endian,
             features: super::features::FeatureSet(features_array),
@@ -371,6 +393,12 @@ impl<R: Read> PerfFileReader<R> {
             read_offset: 0,
             record_data_len: None, // Unbounded for pipes
             sorter: Sorter::new(),
+            synthetic_round_size: if is_simpleperf {
+                Some(SIMPLEPERF_SYNTHETIC_ROUND_SIZE)
+            } else {
+                None
+            },
+            records_since_last_finished_round: 0,
             buffers_for_recycling: VecDeque::new(),
             current_event_body: Vec::new(),
             pending_first_record,
@@ -400,6 +428,16 @@ pub struct PerfRecordIter<R: Read> {
     parse_infos: Vec<RecordParseInfo>,
     event_id_to_attr_index: HashMap<u64, usize>,
     sorter: Sorter<RecordSortKey, PendingRecord>,
+    /// If `Some(n)`, inject a synthetic `finish_round()` call every `n`
+    /// records. Used for files whose writer (e.g. simpleperf) already emits
+    /// records in near-timestamp order but doesn't write
+    /// `PERF_RECORD_FINISHED_ROUND` markers. The synthetic rounds bound the
+    /// sorter's buffering — without them the sorter would hold the entire
+    /// file. The chosen `n` must comfortably exceed the worst-case
+    /// out-of-order window (in record count) of the writer.
+    synthetic_round_size: Option<usize>,
+    /// Counter used together with `synthetic_round_size`.
+    records_since_last_finished_round: usize,
     buffers_for_recycling: VecDeque<Vec<u8>>,
     /// For pipe mode: the first non-metadata record that was read during initialization
     pending_first_record: Option<(PerfEventHeader, Vec<u8>)>,
@@ -434,7 +472,7 @@ impl<R: Read> PerfRecordIter<R> {
         Ok(None)
     }
 
-    /// Reads events into self.sorter until a FINISHED_ROUND record is found
+    /// Reads events into self.sorter until a round boundary is found
     /// and self.sorter is non-empty, or until we've run out of records to read.
     fn read_next_round(&mut self) -> Result<(), Error> {
         if self.endian == Endianness::LittleEndian {
@@ -444,7 +482,8 @@ impl<R: Read> PerfRecordIter<R> {
         }
     }
 
-    /// Reads events into self.sorter until a FINISHED_ROUND record is found
+    /// Reads events into self.sorter until a round boundary is found (either
+    /// a FINISHED_ROUND record or a synthetic boundary for simpleperf files)
     /// and self.sorter is non-empty, or until we've run out of records to read.
     fn read_next_round_impl<T: ByteOrder>(&mut self) -> Result<(), Error> {
         // Handle pending first record from pipe mode initialization
@@ -483,6 +522,7 @@ impl<R: Read> PerfRecordIter<R> {
 
             if user_record_type == Some(UserRecordType::PERF_FINISHED_ROUND) {
                 self.sorter.finish_round();
+                self.records_since_last_finished_round = 0;
                 if self.sorter.has_more() {
                     // The sorter is non-empty. We're done.
                     return Ok(());
@@ -557,6 +597,18 @@ impl<R: Read> PerfRecordIter<R> {
                     self.process_record::<T>(header, buffer, Some(offset))?
                 }
                 _ => self.process_record::<T>(header, buffer, Some(offset))?,
+            }
+
+            // Auto-flush for simpleperf files
+            if let Some(round_size) = self.synthetic_round_size {
+                self.records_since_last_finished_round += 1;
+                if self.records_since_last_finished_round >= round_size {
+                    self.records_since_last_finished_round = 0;
+                    self.sorter.finish_round();
+                    if self.sorter.has_more() {
+                        return Ok(());
+                    }
+                }
             }
         }
 
