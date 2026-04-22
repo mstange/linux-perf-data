@@ -452,12 +452,21 @@ pub struct PerfRecordIter<R: Read> {
 }
 
 impl<R: Read> PerfRecordIter<R> {
-    /// Iterates the records in this file. The records are emitted in the
-    /// correct order, i.e. sorted by time.
+    /// Iterates the records in this file. The records are *mostly* emitted
+    /// in the correct order, i.e. sorted by time.
     ///
     /// `next_record` does some internal buffering so that the sort order can
     /// be guaranteed. This buffering takes advantage of `FINISHED_ROUND`
     /// records so that we don't buffer more records than necessary.
+    ///
+    /// However, `FINISHED_ROUND` records are only emitted by Linux perf, not
+    /// by Android simpleperf. When reading simpleperf files, the following
+    /// caveats apply:
+    ///
+    /// - `MMAP` / `MMAP2` records can appear out-of-order and with non-sensical
+    ///   timestamps.
+    /// - Other records can, in very rare cases, appear out-of-order if they were
+    ///   originally emitted by different CPUs.
     pub fn next_record(
         &mut self,
         _perf_file: &mut PerfFile,
