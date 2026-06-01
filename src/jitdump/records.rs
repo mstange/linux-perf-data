@@ -222,3 +222,49 @@ impl<'a> JitCodeUnwindingInfoRecord<'a> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::jitdump::{JitDumpReader, JitDumpRecord};
+    use std::fs::File;
+
+    fn parse_jitdump(path: &str) -> (usize, usize) {
+        let mut reader = JitDumpReader::new(File::open(path).unwrap()).unwrap();
+        let (mut loads, mut unwinds) = (0, 0);
+        while let Some(raw) = reader.next_record().unwrap() {
+            match raw.parse().unwrap() {
+                JitDumpRecord::CodeLoad(_) => loads += 1,
+                JitDumpRecord::CodeUnwindingInfo(_) => unwinds += 1,
+                _ => {}
+            }
+        }
+        (loads, unwinds)
+    }
+
+    /// A real cpython-on-Linux x86_64 jitdump capture in the **standard** perf
+    /// layout (u32 tid, no alignment padding).
+    #[test]
+    fn parses_standard_layout_python_jitdump() {
+        let (loads, unwinds) = parse_jitdump(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testdata/jit-python-linux-x86_64.dump"
+        ));
+        assert_eq!(loads, 195);
+        assert_eq!(unwinds, 195);
+    }
+
+    /// A real jitdump from cpython-3.15.0a7 on **macOS arm64**, where CPython
+    /// declares `thread_id` as `uint64_t`, so every `CODE_LOAD` uses the wider
+    /// layout (u64 tid + 4 bytes of alignment padding), shifting the name and
+    /// code bytes by 8 vs the perf jitdump spec. The previous u32-only parser
+    /// misread `code_size` as the (4 GB) code address and failed on this file.
+    #[test]
+    fn parses_macos_wide_layout_python_jitdump() {
+        let (loads, unwinds) = parse_jitdump(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testdata/jit-python-macos-arm64.dump"
+        ));
+        assert_eq!(loads, 195);
+        assert_eq!(unwinds, 195);
+    }
+}
