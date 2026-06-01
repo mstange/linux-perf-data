@@ -1,8 +1,6 @@
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use linux_perf_event_reader::{Endianness, RawData};
 
-use super::record::JitDumpRecordHeader;
-
 /// A parsed `JIT_CODE_LOAD` record, for a single jitted function.
 ///
 /// This carries the function name and the code bytes.
@@ -11,7 +9,11 @@ pub struct JitCodeLoadRecord<'a> {
     /// The process ID of the runtime generating the jitted code.
     pub pid: u32,
     /// The thread ID of the runtime thread generating the jitted code.
-    pub tid: u32,
+    ///
+    /// This is a `u64` because some runtimes (e.g. CPython on macOS, which uses
+    /// `pthread_threadid_np`) write a 64-bit thread id, in a wider record layout
+    /// that is detected during parsing (see `parse_impl`).
+    pub tid: u64,
     /// The virtual address where `code_bytes` starts in the memory of the process.
     pub vma: u64,
     /// The code start address for the jitted code. It is unclear in what cases this would differ from `vma`.
@@ -26,11 +28,6 @@ pub struct JitCodeLoadRecord<'a> {
 }
 
 impl<'a> JitCodeLoadRecord<'a> {
-    /// The offset, in bytes, between the start of the record header and
-    /// the start of the function name.
-    pub const NAME_OFFSET_FROM_RECORD_START: usize =
-        JitDumpRecordHeader::SIZE + 4 + 4 + 8 + 8 + 8 + 8;
-
     pub fn parse(endian: Endianness, data: RawData<'a>) -> Result<Self, std::io::Error> {
         match endian {
             Endianness::LittleEndian => Self::parse_impl::<LittleEndian>(data),
@@ -39,16 +36,44 @@ impl<'a> JitCodeLoadRecord<'a> {
     }
 
     pub fn parse_impl<O: ByteOrder>(data: RawData<'a>) -> Result<Self, std::io::Error> {
+        // Try the standard layout first (the common case); fall back to the wider
+        // macOS layout if it isn't self-consistent with the record body length.
+        // The two layouts differ only in where the name starts, so exactly one of
+        // them makes `prefix + name_len + 1 + code_size == body_len` hold.
+        if let Some(record) = Self::try_parse::<O>(data, false) {
+            return Ok(record);
+        }
+        if let Some(record) = Self::try_parse::<O>(data, true) {
+            return Ok(record);
+        }
+        Err(std::io::ErrorKind::InvalidData.into())
+    }
+
+    fn try_parse<O: ByteOrder>(data: RawData<'a>, macos_wide_layout: bool) -> Option<Self> {
+        let body_len = data.len();
         let mut cur = data;
-        let pid = cur.read_u32::<O>()?;
-        let tid = cur.read_u32::<O>()?;
-        let vma = cur.read_u64::<O>()?;
-        let code_addr = cur.read_u64::<O>()?;
-        let code_size = cur.read_u64::<O>()?;
-        let code_index = cur.read_u64::<O>()?;
-        let function_name = cur.read_string().ok_or(std::io::ErrorKind::UnexpectedEof)?;
-        let code_bytes = cur.split_off_prefix(code_size as usize)?;
-        Ok(Self {
+        let pid = cur.read_u32::<O>().ok()?;
+        let tid = if macos_wide_layout {
+            let _pad = cur.read_u32::<O>().ok()?;
+            cur.read_u64::<O>().ok()?
+        } else {
+            u64::from(cur.read_u32::<O>().ok()?)
+        };
+        let vma = cur.read_u64::<O>().ok()?;
+        let code_addr = cur.read_u64::<O>().ok()?;
+        let code_size = cur.read_u64::<O>().ok()?;
+        let code_index = cur.read_u64::<O>().ok()?;
+        let function_name = cur.read_string()?;
+
+        // Validate this layout against the known body length before trusting it:
+        // `cur` now points just past the name's NUL, so the bytes consumed so far
+        // plus the code must exactly fill the body.
+        let consumed = body_len - cur.len();
+        if consumed.checked_add(code_size as usize)? != body_len {
+            return None;
+        }
+        let code_bytes = cur.split_off_prefix(code_size as usize).ok()?;
+        Some(Self {
             pid,
             tid,
             vma,
@@ -58,16 +83,6 @@ impl<'a> JitCodeLoadRecord<'a> {
             code_bytes,
         })
     }
-
-    /// The offset, in bytes, between the start of the record header and
-    /// the start of the code bytes.
-    ///
-    /// This can be different for each record because the code bytes are after
-    /// the function name, so this offset depends on the length of the function
-    /// name.
-    pub fn code_bytes_offset_from_record_header_start(&self) -> usize {
-        JitDumpRecordHeader::SIZE + 4 + 4 + 8 + 8 + 8 + 8 + self.function_name.len() + 1
-    }
 }
 
 /// A parsed `JIT_CODE_MOVE` record.
@@ -76,7 +91,9 @@ pub struct JitCodeMoveRecord {
     /// The process ID of the runtime generating the jitted code.
     pub pid: u32,
     /// The thread ID of the runtime thread generating the jitted code.
-    pub tid: u32,
+    ///
+    /// This is a `u64` for the same reason as [`JitCodeLoadRecord::tid`].
+    pub tid: u64,
     /// The new address where the jitted code starts in the virtual memory of the process.
     pub vma: u64,
     /// The old address of this function's code bytes.
@@ -98,15 +115,38 @@ impl JitCodeMoveRecord {
     }
 
     pub fn parse_impl<O: ByteOrder>(data: RawData) -> Result<Self, std::io::Error> {
+        // This record is fixed-size with no trailing data, so the correct layout
+        // is the one whose fields exactly consume the body (48 bytes for the
+        // standard u32 tid, 56 for the wider macOS u64 tid + padding).
+        if let Some(record) = Self::try_parse::<O>(data, false) {
+            return Ok(record);
+        }
+        if let Some(record) = Self::try_parse::<O>(data, true) {
+            return Ok(record);
+        }
+        Err(std::io::ErrorKind::InvalidData.into())
+    }
+
+    fn try_parse<O: ByteOrder>(data: RawData, macos_wide_layout: bool) -> Option<Self> {
         let mut cur = data;
-        let pid = cur.read_u32::<O>()?;
-        let tid = cur.read_u32::<O>()?;
-        let vma = cur.read_u64::<O>()?;
-        let old_code_addr = cur.read_u64::<O>()?;
-        let new_code_addr = cur.read_u64::<O>()?;
-        let code_size = cur.read_u64::<O>()?;
-        let code_index = cur.read_u64::<O>()?;
-        Ok(Self {
+        let pid = cur.read_u32::<O>().ok()?;
+        let tid = if macos_wide_layout {
+            let _pad = cur.read_u32::<O>().ok()?;
+            cur.read_u64::<O>().ok()?
+        } else {
+            u64::from(cur.read_u32::<O>().ok()?)
+        };
+        let vma = cur.read_u64::<O>().ok()?;
+        let old_code_addr = cur.read_u64::<O>().ok()?;
+        let new_code_addr = cur.read_u64::<O>().ok()?;
+        let code_size = cur.read_u64::<O>().ok()?;
+        let code_index = cur.read_u64::<O>().ok()?;
+
+        // The record must be fully consumed; otherwise we picked the wrong layout.
+        if !cur.is_empty() {
+            return None;
+        }
+        Some(Self {
             pid,
             tid,
             vma,
