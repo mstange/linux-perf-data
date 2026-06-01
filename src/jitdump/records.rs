@@ -40,40 +40,54 @@ impl<'a> JitCodeLoadRecord<'a> {
         // macOS layout if it isn't self-consistent with the record body length.
         // The two layouts differ only in where the name starts, so exactly one of
         // them makes `prefix + name_len + 1 + code_size == body_len` hold.
-        if let Some(record) = Self::try_parse::<O>(data, false) {
+        //
+        // A read error on the standard (narrower) layout means the record is too
+        // short even for the minimal layout, i.e. genuinely truncated — propagate
+        // it rather than masking it as `InvalidData`. The wider layout only reads
+        // *more* bytes, so a read error there just means "not this layout".
+        if let Some(record) = Self::try_parse::<O>(data, false)? {
             return Ok(record);
         }
-        if let Some(record) = Self::try_parse::<O>(data, true) {
+        if let Ok(Some(record)) = Self::try_parse::<O>(data, true) {
             return Ok(record);
         }
         Err(std::io::ErrorKind::InvalidData.into())
     }
 
-    fn try_parse<O: ByteOrder>(data: RawData<'a>, macos_wide_layout: bool) -> Option<Self> {
+    /// Parse one layout. `Ok(Some)` = parsed and self-consistent, `Ok(None)` =
+    /// fields read but the layout doesn't fit the body (try the other one),
+    /// `Err` = a genuine read error such as `UnexpectedEof`.
+    fn try_parse<O: ByteOrder>(
+        data: RawData<'a>,
+        macos_wide_layout: bool,
+    ) -> Result<Option<Self>, std::io::Error> {
         let body_len = data.len();
         let mut cur = data;
-        let pid = cur.read_u32::<O>().ok()?;
+        let pid = cur.read_u32::<O>()?;
         let tid = if macos_wide_layout {
-            let _pad = cur.read_u32::<O>().ok()?;
-            cur.read_u64::<O>().ok()?
+            let _pad = cur.read_u32::<O>()?;
+            cur.read_u64::<O>()?
         } else {
-            u64::from(cur.read_u32::<O>().ok()?)
+            u64::from(cur.read_u32::<O>()?)
         };
-        let vma = cur.read_u64::<O>().ok()?;
-        let code_addr = cur.read_u64::<O>().ok()?;
-        let code_size = cur.read_u64::<O>().ok()?;
-        let code_index = cur.read_u64::<O>().ok()?;
-        let function_name = cur.read_string()?;
+        let vma = cur.read_u64::<O>()?;
+        let code_addr = cur.read_u64::<O>()?;
+        let code_size = cur.read_u64::<O>()?;
+        let code_index = cur.read_u64::<O>()?;
+        let Some(function_name) = cur.read_string() else {
+            return Ok(None);
+        };
 
         // Validate this layout against the known body length before trusting it:
         // `cur` now points just past the name's NUL, so the bytes consumed so far
-        // plus the code must exactly fill the body.
+        // plus the code must exactly fill the body. A mismatch means we picked the
+        // wrong layout.
         let consumed = body_len - cur.len();
-        if consumed.checked_add(code_size as usize)? != body_len {
-            return None;
+        if consumed.checked_add(code_size as usize) != Some(body_len) {
+            return Ok(None);
         }
-        let code_bytes = cur.split_off_prefix(code_size as usize).ok()?;
-        Some(Self {
+        let code_bytes = cur.split_off_prefix(code_size as usize)?;
+        Ok(Some(Self {
             pid,
             tid,
             vma,
@@ -81,7 +95,7 @@ impl<'a> JitCodeLoadRecord<'a> {
             code_index,
             function_name,
             code_bytes,
-        })
+        }))
     }
 }
 
@@ -118,35 +132,45 @@ impl JitCodeMoveRecord {
         // This record is fixed-size with no trailing data, so the correct layout
         // is the one whose fields exactly consume the body (48 bytes for the
         // standard u32 tid, 56 for the wider macOS u64 tid + padding).
-        if let Some(record) = Self::try_parse::<O>(data, false) {
+        //
+        // As in `JitCodeLoadRecord`, a read error on the narrower standard layout
+        // is genuine truncation and is propagated; the wider layout's read errors
+        // just mean "not this layout".
+        if let Some(record) = Self::try_parse::<O>(data, false)? {
             return Ok(record);
         }
-        if let Some(record) = Self::try_parse::<O>(data, true) {
+        if let Ok(Some(record)) = Self::try_parse::<O>(data, true) {
             return Ok(record);
         }
         Err(std::io::ErrorKind::InvalidData.into())
     }
 
-    fn try_parse<O: ByteOrder>(data: RawData, macos_wide_layout: bool) -> Option<Self> {
+    /// Parse one layout. `Ok(Some)` = parsed and the body is fully consumed,
+    /// `Ok(None)` = wrong layout (trailing bytes left over), `Err` = a genuine
+    /// read error such as `UnexpectedEof`.
+    fn try_parse<O: ByteOrder>(
+        data: RawData,
+        macos_wide_layout: bool,
+    ) -> Result<Option<Self>, std::io::Error> {
         let mut cur = data;
-        let pid = cur.read_u32::<O>().ok()?;
+        let pid = cur.read_u32::<O>()?;
         let tid = if macos_wide_layout {
-            let _pad = cur.read_u32::<O>().ok()?;
-            cur.read_u64::<O>().ok()?
+            let _pad = cur.read_u32::<O>()?;
+            cur.read_u64::<O>()?
         } else {
-            u64::from(cur.read_u32::<O>().ok()?)
+            u64::from(cur.read_u32::<O>()?)
         };
-        let vma = cur.read_u64::<O>().ok()?;
-        let old_code_addr = cur.read_u64::<O>().ok()?;
-        let new_code_addr = cur.read_u64::<O>().ok()?;
-        let code_size = cur.read_u64::<O>().ok()?;
-        let code_index = cur.read_u64::<O>().ok()?;
+        let vma = cur.read_u64::<O>()?;
+        let old_code_addr = cur.read_u64::<O>()?;
+        let new_code_addr = cur.read_u64::<O>()?;
+        let code_size = cur.read_u64::<O>()?;
+        let code_index = cur.read_u64::<O>()?;
 
         // The record must be fully consumed; otherwise we picked the wrong layout.
         if !cur.is_empty() {
-            return None;
+            return Ok(None);
         }
-        Some(Self {
+        Ok(Some(Self {
             pid,
             tid,
             vma,
@@ -154,7 +178,7 @@ impl JitCodeMoveRecord {
             new_code_addr,
             code_size,
             code_index,
-        })
+        }))
     }
 }
 
@@ -306,5 +330,26 @@ mod tests {
         ));
         assert_eq!(loads, 195);
         assert_eq!(unwinds, 195);
+    }
+
+    /// A record body too short for even the standard layout must surface the
+    /// underlying `UnexpectedEof` rather than being masked as `InvalidData` by
+    /// the layout-detection fallback.
+    #[test]
+    fn truncated_records_report_eof() {
+        use super::{JitCodeLoadRecord, JitCodeMoveRecord};
+        use linux_perf_event_reader::{Endianness, RawData};
+
+        let short = [0u8; 10]; // not enough for pid + tid + vma
+        for kind in [
+            JitCodeLoadRecord::parse(Endianness::LittleEndian, RawData::Single(&short))
+                .unwrap_err()
+                .kind(),
+            JitCodeMoveRecord::parse(Endianness::LittleEndian, RawData::Single(&short))
+                .unwrap_err()
+                .kind(),
+        ] {
+            assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
+        }
     }
 }
