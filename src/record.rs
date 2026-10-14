@@ -3,6 +3,7 @@ use linux_perf_event_reader::RawEventRecord;
 use linux_perf_event_reader::{Endianness, PerfEventAttr, RawData, RecordType};
 
 use crate::auxtrace::Auxtrace;
+use crate::auxtrace_info::AuxtraceInfo;
 use crate::constants::*;
 use crate::features::Feature;
 use crate::thread_map::ThreadMap;
@@ -31,6 +32,7 @@ pub enum UserRecord<'a> {
     HeaderAttr(HeaderAttr),
     HeaderFeature(HeaderFeature),
     Auxtrace(Auxtrace<'a>),
+    AuxtraceInfo(AuxtraceInfo<'a>),
     Raw(RawUserRecord<'a>),
 }
 
@@ -162,7 +164,9 @@ impl<'a> RawUserRecord<'a> {
             // UserRecordType::PERF_HEADER_BUILD_ID => {},
             // UserRecordType::PERF_FINISHED_ROUND => {},
             // UserRecordType::PERF_ID_INDEX => {},
-            // UserRecordType::PERF_AUXTRACE_INFO => {},
+            UserRecordType::PERF_AUXTRACE_INFO => {
+                UserRecord::AuxtraceInfo(AuxtraceInfo::parse::<T>(self.data)?)
+            }
             UserRecordType::PERF_AUXTRACE => UserRecord::Auxtrace(Auxtrace::parse::<T>(self.data)?),
             // UserRecordType::PERF_AUXTRACE_ERROR => {},
             // UserRecordType::PERF_CPU_MAP => {},
